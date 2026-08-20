@@ -92,6 +92,7 @@ pub mod type_;
 pub mod uid;
 pub mod version;
 pub mod warning;
+pub mod zig;
 
 pub(crate) mod ast_folder;
 mod call_graph;

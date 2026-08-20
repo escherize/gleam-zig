@@ -21,7 +21,7 @@ use crate::{
         native_file_copier::NativeFileCopier,
         package_loader::{CodegenRequired, PackageLoader, StaleTracker},
     },
-    codegen::{Erlang, ErlangApp, JavaScript, TypeScriptDeclarations},
+    codegen::{Erlang, ErlangApp, JavaScript, TypeScriptDeclarations, Zig},
     config::PackageConfig,
     io::{BeamCompilerIO, CommandExecutor, FileSystemReader, FileSystemWriter, Stdio},
     parse::extra::ModuleExtra,
@@ -376,7 +376,7 @@ where
             TargetCodegenConfiguration::Erlang { app_file } => {
                 self.perform_erlang_codegen(modules, cached_module_names, app_file.as_ref())
             }
-            TargetCodegenConfiguration::Zig => todo!("Zig codegen is not yet implemented"),
+            TargetCodegenConfiguration::Zig => self.perform_zig_codegen(modules),
         }
     }
 
@@ -466,6 +466,19 @@ where
             for module in modules {
                 self.link_module_source_file_to_out(module)?;
             }
+        }
+
+        Ok(())
+    }
+
+    fn perform_zig_codegen(&mut self, modules: &[Module]) -> Result<(), Error> {
+        Zig::new(self.out).render(&self.io, modules)?;
+
+        if self.copy_native_files {
+            let mut written = HashSet::new();
+            self.copy_project_native_files(self.out, &mut written)?;
+        } else {
+            tracing::debug!("skipping_native_file_copying");
         }
 
         Ok(())

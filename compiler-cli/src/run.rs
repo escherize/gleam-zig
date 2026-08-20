@@ -157,7 +157,13 @@ pub fn setup(
                 run_javascript_bun_command(paths, &main_function.package, &module, arguments)
             }
         },
-        Target::Zig => todo!("gleam run is not yet implemented for the Zig target"),
+        Target::Zig => match runtime {
+            Some(r) => Err(Error::InvalidRuntime {
+                target: Target::Zig,
+                invalid_runtime: r,
+            }),
+            _ => run_zig_command(paths, &main_function.package, &module, arguments),
+        },
     }
 }
 
@@ -242,6 +248,44 @@ fn run_javascript_node_command(
 
     Ok(Command {
         program: "node".to_string(),
+        args,
+        env: vec![],
+        cwd: None,
+        stdio: Stdio::Inherit,
+    })
+}
+
+fn run_zig_command(
+    paths: &ProjectPaths,
+    package: &str,
+    module: &str,
+    arguments: Vec<String>,
+) -> Result<Command, Error> {
+    // The entrypoint lives at the target build directory root so that every
+    // generated module (including the shared prelude.zig) is importable:
+    // zig refuses imports from outside the root source file's directory.
+    let entrypoint = format!(
+        r#"const module = @import("{package}/{module}.zig");
+pub fn main() void {{
+    _ = module.@"main"();
+}}
+"#
+    );
+    let path = paths
+        .build_directory_for_target(Mode::Dev, Target::Zig)
+        .join(format!("entrypoint@{}.zig", module.replace('/', "@")));
+    crate::fs::write(&path, &entrypoint)?;
+
+    // The zig toolchain is not assumed to be on PATH; GLEAM_ZIG overrides.
+    let program = std::env::var("GLEAM_ZIG").unwrap_or_else(|_| "zig".into());
+
+    let mut args = vec!["run".to_string(), path.to_string()];
+    for argument in arguments {
+        args.push(argument);
+    }
+
+    Ok(Command {
+        program,
         args,
         env: vec![],
         cwd: None,

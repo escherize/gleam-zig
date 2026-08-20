@@ -141,6 +141,7 @@ fn all_files_have_copyright_notice() {
                 "mjs" if file_name == "prelude.mjs" || file_name == "echo.mjs" => return None,
                 "erl" if file_name == "gleam@@main.erl" || file_name == "echo.erl" => return None,
                 "mts" if file_name == "prelude.d.mts" => return None,
+                "zig" if file_name == "prelude.zig" => return None,
 
                 // Generated files
                 "toml" if file_name == "manifest.toml" => return None,

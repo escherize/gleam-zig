@@ -303,6 +303,53 @@ impl<'a> JavaScript<'a> {
     }
 }
 
+/// A code generator that creates a .zig module for each Gleam module in the
+/// package, plus a shared prelude.zig in the parent (per-target) directory.
+#[derive(Debug)]
+pub struct Zig<'a> {
+    output_directory: &'a Utf8Path,
+}
+
+impl<'a> Zig<'a> {
+    pub fn new(output_directory: &'a Utf8Path) -> Self {
+        Self { output_directory }
+    }
+
+    pub fn render(&self, writer: &impl FileSystemWriter, modules: &[Module]) -> Result<()> {
+        for module in modules {
+            let name = format!("{}.zig", module.name);
+            let path = self.output_directory.join(name);
+            let line_numbers = LineNumbers::new(&module.code);
+            // Modules live at <target-dir>/<package>/<module path>.zig and the
+            // prelude at <target-dir>/prelude.zig, so the import path climbs
+            // one level per module path segment plus one for the package dir.
+            let depth = module.name.split('/').count();
+            let prelude_import_path = format!("{}prelude.zig", "../".repeat(depth));
+            let output = crate::zig::module(
+                &module.ast,
+                &line_numbers,
+                module.input_path.as_str(),
+                &prelude_import_path,
+            );
+            tracing::debug!(name = ?module.name, "Generated zig module");
+            writer.write(&path, &output)?;
+        }
+        self.write_prelude(writer)
+    }
+
+    fn write_prelude(&self, writer: &impl FileSystemWriter) -> Result<()> {
+        let path = self
+            .output_directory
+            .parent()
+            .expect("zig output directory has no parent")
+            .join("prelude.zig");
+        if !writer.exists(&path) {
+            writer.write(&path, crate::zig::PRELUDE)?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
