@@ -659,9 +659,9 @@ impl Command {
                 let paths = find_project_paths(directory)?;
                 export::package_information(&paths, output)
             }
-            Self::Export(ExportTarget::ZigExecutable { output }) => {
+            Self::Export(ExportTarget::ZigExecutable { output, cross_target }) => {
                 let paths = find_project_paths(directory)?;
-                export::zig_executable(&paths, output)
+                export::zig_executable(&paths, output, cross_target)
             }
         }
     }
@@ -713,6 +713,10 @@ pub enum ExportTarget {
         /// The path to write the executable to (defaults to the package name)
         #[arg(long = "out")]
         output: Option<Utf8PathBuf>,
+        /// Cross-compilation target triple, e.g. x86_64-linux or
+        /// aarch64-windows (any triple zig accepts)
+        #[arg(long = "target-triple")]
+        cross_target: Option<String>,
     },
 }
 

@@ -275,7 +275,11 @@ pub fn package_information(paths: &ProjectPaths, out: Utf8PathBuf) -> Result<()>
 
 /// Build a native release-mode executable via the zig target.
 ///
-pub fn zig_executable(paths: &ProjectPaths, output: Option<Utf8PathBuf>) -> Result<()> {
+pub fn zig_executable(
+    paths: &ProjectPaths,
+    output: Option<Utf8PathBuf>,
+    cross_target: Option<String>,
+) -> Result<()> {
     let target = Target::Zig;
     let mode = Mode::Prod;
 
@@ -314,12 +318,17 @@ pub fn main(init: std.process.Init.Minimal) void {{
 
     let output = output.unwrap_or_else(|| Utf8PathBuf::from(package_name.as_str()));
     let zig = std::env::var("GLEAM_ZIG").unwrap_or_else(|_| "zig".into());
-    let status = std::process::Command::new(&zig)
+    let mut command = std::process::Command::new(&zig);
+    let _ = command
         .arg("build-exe")
         .arg(entrypoint_path.as_str())
         .arg("-OReleaseFast")
-        .arg(format!("-femit-bin={output}"))
-        .status()
+        .arg(format!("-femit-bin={output}"));
+    if let Some(cross_target) = &cross_target {
+        // Hermetic cross-compilation, e.g. x86_64-linux or aarch64-windows.
+        let _ = command.arg("-target").arg(cross_target);
+    }
+    let status = command.status()
         .map_err(|error| gleam_core::Error::ShellCommand {
             program: zig.clone(),
             reason: gleam_core::error::ShellCommandFailureReason::IoError(error.kind()),
