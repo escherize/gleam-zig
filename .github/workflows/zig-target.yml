@@ -44,6 +44,12 @@ jobs:
           path: gleam-stdlib
           token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
 
+      - name: Check out simplifile fork
+        uses: actions/checkout@v4
+        with:
+          repository: escherize/gleam-zig-simplifile
+          path: simplifile
+
       - name: Check out language tour (test input)
         uses: actions/checkout@v4
         with:
