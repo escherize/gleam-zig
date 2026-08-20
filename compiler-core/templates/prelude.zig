@@ -448,6 +448,35 @@ pub fn call6(f: Value, a: Value, b: Value, c: Value, d: Value, e: Value, g: Valu
     return result;
 }
 
+// ------------------------------------------------------------- reuse (FBIP)
+
+/// Consume a cons cell matched by `[head, ..tail]` whose clause will build
+/// a same-shaped cell. When the subject is unshared (rc == 1) the cell is
+/// stolen for reuse: its field references are released (the clause's
+/// bindings hold their own) and the cell returned with its count intact.
+/// When shared, this is an ordinary drop and construction will allocate.
+pub fn dropReuseCons(subject: Value) ?*Cons {
+    const cell = @constCast(subject.list.?);
+    if (cell.rc == 1) {
+        drop(cell.head);
+        dropList(cell.tail);
+        return cell;
+    }
+    cell.rc -= 1;
+    return null;
+}
+
+/// Consumes head and tail; writes into the reuse cell when one is
+/// available, allocating otherwise.
+pub fn consReuse(token: ?*Cons, head: Value, tail: Value) Value {
+    if (token) |cell| {
+        cell.head = head;
+        cell.tail = tail.list;
+        return Value{ .list = cell };
+    }
+    return cons(head, tail);
+}
+
 // --------------------------------------------------------- pattern support
 // Pattern helpers BORROW the subject: the subject temporary stays owned by
 // the enclosing case and is dropped once, after a clause is selected.

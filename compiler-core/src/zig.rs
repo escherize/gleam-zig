@@ -168,6 +168,10 @@ struct FunctionGenerator<'a, 'm> {
     /// use transfers the reference (no dup) and no scope-exit drop is
     /// emitted.
     moved: HashSet<String>,
+    /// A reuse token (?*Cons identifier) available to the next
+    /// single-element list construction rendered in the current clause
+    /// body. Set only when that construction is guaranteed to render.
+    reuse_token: Option<String>,
 }
 
 impl<'a, 'm> FunctionGenerator<'a, 'm> {
@@ -181,6 +185,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             used_tail_loop: false,
             pipe_value: None,
             moved: HashSet::new(),
+            reuse_token: None,
         }
     }
 
@@ -250,18 +255,28 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             let mut parameter_list = Vec::new();
             let mut locals = Vec::new();
             let mut local_idents = Vec::new();
+            let mut dropped_params = Vec::new();
             for parameter_name in &parameter_names {
                 let rendered = self.bind(parameter_name);
                 let incoming = zig_identifier(&format!("p${parameter_name}"));
                 parameter_list.push(format!("{incoming}: Value"));
                 locals.push(format!("{INDENT}var {rendered} = {incoming};\n"));
-                local_idents.push(rendered);
+                local_idents.push(rendered.clone());
+                // A parameter whose only use is straight-line (commonly the
+                // case subject) transfers its reference there each
+                // iteration; reassignment at `continue` is not a use, and
+                // the moved value must not appear in any drop list.
+                if summarise_uses(parameter_name, &function.body).single_straight_line_use() {
+                    let _ = self.moved.insert(rendered);
+                } else {
+                    dropped_params.push(rendered);
+                }
             }
             self.tail_target = Some((name.clone(), local_idents.clone()));
 
             let inner_indent = format!("{INDENT}{INDENT}");
             let body =
-                self.statements(&function.body, Tail::Return, &inner_indent, &local_idents);
+                self.statements(&function.body, Tail::Return, &inner_indent, &dropped_params);
 
             format!(
                 "{visibility}fn {}({}) Value {{\n{}{INDENT}while (true) {{\n{body}{INDENT}}}\n}}\n",
@@ -271,15 +286,19 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             )
         } else {
             let mut parameter_list = Vec::new();
-            let mut rendered_parameters = Vec::new();
+            let mut dropped_params = Vec::new();
             for parameter_name in &parameter_names {
                 let rendered = self.bind(parameter_name);
                 parameter_list.push(format!("{rendered}: Value"));
-                rendered_parameters.push(rendered);
+                if summarise_uses(parameter_name, &function.body).single_straight_line_use() {
+                    let _ = self.moved.insert(rendered);
+                } else {
+                    dropped_params.push(rendered);
+                }
             }
 
             let body =
-                self.statements(&function.body, Tail::Return, INDENT, &rendered_parameters);
+                self.statements(&function.body, Tail::Return, INDENT, &dropped_params);
 
             format!(
                 "{visibility}fn {}({}) Value {{\n{body}}}\n",
@@ -656,6 +675,16 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
 
             TypedExpr::List { elements, tail, .. } => {
+                // A pending reuse token feeds the canonical `[x, ..rest]`
+                // construction: the matched cell is written in place when
+                // it was unshared.
+                if elements.len() == 1 && tail.is_some() {
+                    if let Some(token) = self.reuse_token.take() {
+                        let head = self.expression(&elements[0], indent);
+                        let tail = self.expression(tail.as_ref().expect("tail"), indent);
+                        return format!("P.consReuse({token}, {head}, {tail})");
+                    }
+                }
                 let tail = match tail {
                     Some(tail) => self.expression(tail, indent),
                     None => "P.emptyList()".to_string(),
@@ -1100,15 +1129,19 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 .insert(name.clone(), format!("@\"env$\"[{index}]"));
         }
         let mut parameter_list = vec!["@\"env$\": []const Value".to_string()];
-        let mut rendered_parameters = Vec::new();
+        let mut dropped_params = Vec::new();
         for parameter_name in parameter_names {
             let rendered = generator.bind(&parameter_name);
             parameter_list.push(format!("{rendered}: Value"));
-            rendered_parameters.push(rendered);
+            if summarise_uses(&parameter_name, body).single_straight_line_use() {
+                let _ = generator.moved.insert(rendered);
+            } else {
+                dropped_params.push(rendered);
+            }
         }
         // Parameters are owned and released at exit; the env is borrowed
-        // (it belongs to the closure and is released when the closure is).
-        let body_text = generator.statements(body, Tail::Return, INDENT, &rendered_parameters);
+        // (it belongs to the closure and is released with the closure).
+        let body_text = generator.statements(body, Tail::Return, INDENT, &dropped_params);
 
         let mut discards = String::new();
         if !body_text.contains("@\"env$\"[") {
@@ -1211,12 +1244,28 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         "{inner_indent}if (!(({guard}).bool)) {{ {on_fail}break :{clause_label}; }}\n"
                     ));
                 }
+                // FBIP reuse: hand the matched cons cell to the body's
+                // guaranteed construction. Extracted only after the guard
+                // has passed (a failed guard leaves the subject owned by
+                // the case), and the subject is then excluded from this
+                // clause's exit drops.
+                let reuses = subjects.len() == 1 && clause_reuses_cons(clause);
+                if reuses {
+                    let token = self.fresh_name("reuse");
+                    guard_and_body.push_str(&format!(
+                        "{inner_indent}const {token} = P.dropReuseCons({});\n",
+                        subject_names[0]
+                    ));
+                    self.reuse_token = Some(token);
+                }
+                let subject_drops: &[String] = if reuses { &[] } else { &subject_names };
+
                 // Everything owned at the exit taken from this clause:
                 // clause bindings, the case subjects, and (in tail position)
                 // the enclosing scope's live bindings.
                 let exit_drops: Vec<String> = bound
                     .iter()
-                    .chain(&subject_names)
+                    .chain(subject_drops)
                     .chain(pending_drops)
                     .cloned()
                     .collect();
@@ -1234,7 +1283,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         let result = self.fresh_name("r");
                         guard_and_body
                             .push_str(&format!("{inner_indent}const {result} = {value};\n"));
-                        for binding in bound.iter().chain(&subject_names) {
+                        for binding in bound.iter().chain(subject_drops) {
                             guard_and_body
                                 .push_str(&format!("{inner_indent}P.drop({binding});\n"));
                         }
@@ -1243,6 +1292,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         ));
                     }
                 }
+                assert!(
+                    self.reuse_token.is_none(),
+                    "zig codegen: reuse token was not consumed by the clause body"
+                );
 
                 let breaks_label = format!("break :{clause_label}");
                 let labelled = clause_body.contains(&breaks_label)
@@ -1632,6 +1685,38 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let identifier = zig_identifier(&rendered);
         let _ = self.scope.insert(name.clone(), identifier.clone());
         identifier
+    }
+}
+
+/// True when a clause is the canonical list-reuse shape: it matches
+/// `[x, ..rest]` on a single subject and its body's always-evaluated part
+/// is (or directly contains, as a call argument) a `[y, ..zs]`
+/// construction. The construction is then guaranteed to render exactly
+/// once, so the matched cell can be handed to it for in-place reuse.
+fn clause_reuses_cons(clause: &TypedClause) -> bool {
+    let single_cons_pattern = clause.alternative_patterns.is_empty()
+        && clause.pattern.len() == 1
+        && matches!(
+            &clause.pattern[0],
+            Pattern::List { elements, tail, .. } if elements.len() == 1 && tail.is_some()
+        );
+    if !single_cons_pattern {
+        return false;
+    }
+    fn is_cons_construction(expression: &TypedExpr) -> bool {
+        matches!(
+            expression,
+            TypedExpr::List { elements, tail, .. } if elements.len() == 1 && tail.is_some()
+        )
+    }
+    match &clause.then {
+        expression if is_cons_construction(expression) => true,
+        // Call arguments are always evaluated, so a construction there is
+        // guaranteed to render (covers accumulator-style tail calls).
+        TypedExpr::Call { arguments, .. } => arguments
+            .iter()
+            .any(|argument| is_cons_construction(&argument.value)),
+        _ => false,
     }
 }
 
