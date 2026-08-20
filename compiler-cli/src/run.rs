@@ -265,9 +265,11 @@ fn run_zig_command(
     // generated module (including the shared prelude.zig) is importable:
     // zig refuses imports from outside the root source file's directory.
     let entrypoint = format!(
-        r#"const module = @import("{package}/{module}.zig");
+        r#"const P = @import("prelude.zig");
+const module = @import("{package}/{module}.zig");
 pub fn main() void {{
-    _ = module.@"main"();
+    P.drop(module.@"main"());
+    P.leakCheckExit();
 }}
 "#
     );

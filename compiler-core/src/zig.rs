@@ -201,8 +201,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             let forwarded = (0..function.arguments.len())
                 .map(|index| zig_identifier(&format!("a${index}")))
                 .join(", ");
+            // FFI receives borrowed values and returns an owned one; the
+            // forwarding fn owns its parameters, so it drops them after.
+            let drops = (0..function.arguments.len())
+                .map(|index| {
+                    format!("{INDENT}P.drop({});\n", zig_identifier(&format!("a${index}")))
+                })
+                .join("");
             return format!(
-                "{visibility}fn {}({parameters}) Value {{\n{INDENT}return {import}.{}({forwarded});\n}}\n",
+                "{visibility}fn {}({parameters}) Value {{\n{INDENT}const result = {import}.{}({forwarded});\n{drops}{INDENT}return result;\n}}\n",
                 zig_identifier(&name),
                 zig_identifier(ffi_name),
             );
@@ -233,7 +240,8 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
 
         if uses_tail_recursion {
             // Parameters become mutable locals so self tail calls can
-            // reassign them and continue the loop.
+            // reassign them and continue the loop. The locals own the
+            // incoming references and are dropped at every exit.
             let mut parameter_list = Vec::new();
             let mut locals = Vec::new();
             let mut local_idents = Vec::new();
@@ -247,20 +255,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             self.tail_target = Some((name.clone(), local_idents.clone()));
 
             let inner_indent = format!("{INDENT}{INDENT}");
-            let body = self.statements(&function.body, Tail::Return, &inner_indent);
-
-            // Unassigned-but-unused warnings cannot happen for these: every
-            // parameter is reassigned at each continue site. But parameters
-            // the body never reads still need discards.
-            let mut discards = String::new();
-            for rendered in &local_idents {
-                if !body.contains(rendered.as_str()) {
-                    discards.push_str(&format!("{INDENT}{INDENT}_ = {rendered};\n"));
-                }
-            }
+            let body =
+                self.statements(&function.body, Tail::Return, &inner_indent, &local_idents);
 
             format!(
-                "{visibility}fn {}({}) Value {{\n{}{INDENT}while (true) {{\n{discards}{body}{INDENT}}}\n}}\n",
+                "{visibility}fn {}({}) Value {{\n{}{INDENT}while (true) {{\n{body}{INDENT}}}\n}}\n",
                 zig_identifier(&name),
                 parameter_list.join(", "),
                 locals.join(""),
@@ -274,17 +273,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 rendered_parameters.push(rendered);
             }
 
-            let body = self.statements(&function.body, Tail::Return, INDENT);
-
-            let mut discards = String::new();
-            for rendered in &rendered_parameters {
-                if !body.contains(rendered.as_str()) {
-                    discards.push_str(&format!("{INDENT}_ = {rendered};\n"));
-                }
-            }
+            let body =
+                self.statements(&function.body, Tail::Return, INDENT, &rendered_parameters);
 
             format!(
-                "{visibility}fn {}({}) Value {{\n{discards}{body}}}\n",
+                "{visibility}fn {}({}) Value {{\n{body}}}\n",
                 zig_identifier(&name),
                 parameter_list.join(", "),
             )
@@ -294,38 +287,57 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     /// Render a statement sequence. The final statement's value is emitted
     /// according to `tail`: returned (function body, `Tail::Return`) or
     /// left as a `BREAK_PLACEHOLDER` for the enclosing labelled block.
+    ///
+    /// `pending_drops` are owned bindings of enclosing scopes (function
+    /// parameters, outer lets, case subjects) that must be released on any
+    /// `Tail::Return` exit taken from inside this sequence. This sequence's
+    /// own bindings are dropped here on every exit path.
     fn statements(
         &mut self,
         statements: &[TypedStatement],
         tail: Tail,
         indent: &str,
+        pending_drops: &[String],
     ) -> String {
         let saved_scope = self.scope.clone();
-        let mut rendered_statements: Vec<(Option<String>, String)> = Vec::new();
+        let mut out = String::new();
+        let mut own: Vec<String> = Vec::new();
 
         let last_index = statements.len() - 1;
         for (index, statement) in statements.iter().enumerate() {
             let is_last = index == last_index;
             match statement {
                 Statement::Expression(expression) => {
-                    let text = if is_last {
-                        self.final_statement(expression, tail, indent)
+                    if is_last {
+                        let drops: Vec<String> =
+                            own.iter().chain(pending_drops).cloned().collect();
+                        out.push_str(&self.final_statement(expression, tail, indent, &drops));
                     } else {
-                        format!("{indent}_ = {};\n", self.expression(expression, indent))
-                    };
-                    rendered_statements.push((None, text));
+                        // Unused result: release it.
+                        let value = self.expression(expression, indent);
+                        out.push_str(&format!("{indent}P.drop({value});\n"));
+                    }
                 }
                 Statement::Use(use_) => {
-                    let text = if is_last {
-                        self.final_statement(&use_.call, tail, indent)
+                    if is_last {
+                        let drops: Vec<String> =
+                            own.iter().chain(pending_drops).cloned().collect();
+                        out.push_str(&self.final_statement(&use_.call, tail, indent, &drops));
                     } else {
-                        format!("{indent}_ = {};\n", self.expression(&use_.call, indent))
-                    };
-                    rendered_statements.push((None, text));
+                        let value = self.expression(&use_.call, indent);
+                        out.push_str(&format!("{indent}P.drop({value});\n"));
+                    }
                 }
                 Statement::Assignment(assignment) => {
-                    let (binding, text) = self.assignment(assignment, is_last, tail, indent);
-                    rendered_statements.push((binding, text));
+                    let (bindings, text, final_value) =
+                        self.assignment(assignment, is_last, indent);
+                    out.push_str(&text);
+                    own.extend(bindings);
+                    if let Some(final_value) = final_value {
+                        let drops: Vec<String> =
+                            own.iter().chain(pending_drops).cloned().collect();
+                        out.push_str(&self.exit_value(&final_value, tail, indent, &drops));
+                    }
                 }
                 Statement::Assert(assert) => {
                     let value = self.expression(&assert.value, indent);
@@ -335,31 +347,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         indent,
                     );
                     let line = self.line_number(&assert.location);
-                    let mut text = format!(
+                    out.push_str(&format!(
                         "{indent}if (!(({value}).bool)) P.gleamPanic({message}, \"{}\", {line});\n",
                         self.module.src_path
-                    );
+                    ));
                     if is_last {
-                        text.push_str(&self.final_statement_value("P.NIL", tail, indent));
+                        let drops: Vec<String> =
+                            own.iter().chain(pending_drops).cloned().collect();
+                        out.push_str(&self.exit_value("P.NIL", tail, indent, &drops));
                     }
-                    rendered_statements.push((None, text));
-                }
-            }
-        }
-
-        // Zig errors on unused local constants, so bindings never referenced
-        // afterwards get an explicit discard. Rendered names are unique
-        // within a function, making the textual scan sound.
-        let mut out = String::new();
-        for (index, (binding, text)) in rendered_statements.iter().enumerate() {
-            out.push_str(text);
-            if let Some(rendered_name) = binding {
-                let used_later = rendered_statements[index + 1..]
-                    .iter()
-                    .any(|(_, later)| later.contains(rendered_name.as_str()))
-                    || text_after_binding_uses(text, rendered_name);
-                if !used_later {
-                    out.push_str(&format!("{indent}_ = {rendered_name};\n"));
                 }
             }
         }
@@ -369,24 +365,31 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     }
 
     /// Render the last statement of a body when it is an expression.
-    fn final_statement(&mut self, expression: &TypedExpr, tail: Tail, indent: &str) -> String {
+    /// `drops` are all owned bindings live at this point, released before
+    /// the exit (after the result is computed).
+    fn final_statement(
+        &mut self,
+        expression: &TypedExpr,
+        tail: Tail,
+        indent: &str,
+        drops: &[String],
+    ) -> String {
         if tail == Tail::Return {
             // Constructs containing tail positions recurse; a self call
             // becomes a loop continue.
             match expression {
                 TypedExpr::Call { fun, arguments, .. } => {
-                    if let Some(rewrite) = self.tail_self_call(fun, arguments, indent) {
+                    if let Some(rewrite) = self.tail_self_call(fun, arguments, indent, drops) {
                         return rewrite;
                     }
                 }
                 TypedExpr::Case {
                     subjects, clauses, ..
                 } => {
-                    return self.case_statement(subjects, clauses, Tail::Return, indent);
+                    return self.case_statement(subjects, clauses, indent, drops);
                 }
                 TypedExpr::Block { statements, .. } => {
-                    let inner = self.statements(statements.as_slice(), Tail::Return, indent);
-                    return inner;
+                    return self.statements(statements.as_slice(), Tail::Return, indent, drops);
                 }
                 TypedExpr::Pipeline {
                     first_value,
@@ -396,8 +399,9 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 } => {
                     let saved_scope = self.scope.clone();
                     let mut out = String::new();
-                    self.pipeline_steps(first_value, assignments, &mut out, indent);
-                    out.push_str(&self.final_statement(finally, Tail::Return, indent));
+                    let steps = self.pipeline_steps(first_value, assignments, &mut out, indent);
+                    let drops: Vec<String> = steps.iter().chain(drops).cloned().collect();
+                    out.push_str(&self.final_statement(finally, Tail::Return, indent, &drops));
                     self.scope = saved_scope;
                     return out;
                 }
@@ -405,23 +409,38 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
         }
         let value = self.expression(expression, indent);
-        self.final_statement_value(&value, tail, indent)
+        self.exit_value(&value, tail, indent, drops)
     }
 
-    fn final_statement_value(&self, value: &str, tail: Tail, indent: &str) -> String {
-        match tail {
-            Tail::Return => format!("{indent}return {value};\n"),
-            Tail::No => format!("{indent}{BREAK_PLACEHOLDER} {value};\n"),
+    /// Emit an exit (return or labelled break) of `value`, releasing
+    /// `drops` after the value is computed.
+    fn exit_value(&mut self, value: &str, tail: Tail, indent: &str, drops: &[String]) -> String {
+        let keyword = match tail {
+            Tail::Return => "return",
+            Tail::No => BREAK_PLACEHOLDER,
+        };
+        if drops.is_empty() {
+            return format!("{indent}{keyword} {value};\n");
         }
+        let result = self.fresh_name("r");
+        let mut out = format!("{indent}const {result} = {value};\n");
+        for binding in drops {
+            out.push_str(&format!("{indent}P.drop({binding});\n"));
+        }
+        out.push_str(&format!("{indent}{keyword} {result};\n"));
+        out
     }
 
     /// If this call is a tail call to the enclosing function, rewrite it to
-    /// parameter reassignment plus `continue`.
+    /// parameter reassignment plus `continue`. The new argument values are
+    /// computed first, every live binding (including the old parameter
+    /// values) is released, then the parameters are reassigned.
     fn tail_self_call(
         &mut self,
         fun: &TypedExpr,
         arguments: &[CallArg<TypedExpr>],
         indent: &str,
+        drops: &[String],
     ) -> Option<String> {
         let (target_name, parameters) = self.tail_target.clone()?;
         let TypedExpr::Var { constructor, .. } = fun else {
@@ -436,11 +455,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         self.used_tail_loop = true;
         let mut out = String::new();
         let mut temporaries = Vec::new();
-        for (index, argument) in arguments.iter().enumerate() {
+        for argument in arguments.iter() {
             let value = self.expression(&argument.value, indent);
-            let temporary = zig_identifier(&format!("tail${index}"));
+            let temporary = self.fresh_name("tail");
             out.push_str(&format!("{indent}const {temporary} = {value};\n"));
             temporaries.push(temporary);
+        }
+        for binding in drops {
+            out.push_str(&format!("{indent}P.drop({binding});\n"));
         }
         for (parameter, temporary) in parameters.iter().zip(&temporaries) {
             out.push_str(&format!("{indent}{parameter} = {temporary};\n"));
@@ -449,32 +471,35 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         Some(out)
     }
 
+    /// Render an assignment. Returns (bindings this created, text,
+    /// value to exit with when this is the final statement).
     fn assignment(
         &mut self,
         assignment: &TypedAssignment,
         is_last: bool,
-        tail: Tail,
         indent: &str,
-    ) -> (Option<String>, String) {
+    ) -> (Vec<String>, String, Option<String>) {
         let value = self.expression(&assignment.value, indent);
         let is_let_assert = matches!(assignment.kind, AssignmentKind::Assert { .. });
 
         match &assignment.pattern {
             Pattern::Variable { name, .. } if !is_let_assert => {
                 let rendered = self.bind(name);
-                let mut out = format!("{indent}const {rendered} = {value};\n");
+                let out = format!("{indent}const {rendered} = {value};\n");
                 if is_last {
-                    out.push_str(&self.final_statement_value(&rendered, tail, indent));
+                    // The binding is moved out as the result; it is not
+                    // registered for a scope-exit drop.
+                    (Vec::new(), out, Some(rendered))
+                } else {
+                    (vec![rendered], out, None)
                 }
-                (Some(rendered), out)
             }
             Pattern::Discard { .. } if !is_let_assert => {
-                let out = if is_last {
-                    self.final_statement_value(&value, tail, indent)
+                if is_last {
+                    (Vec::new(), String::new(), Some(value))
                 } else {
-                    format!("{indent}_ = {value};\n")
-                };
-                (None, out)
+                    (Vec::new(), format!("{indent}P.drop({value});\n"), None)
+                }
             }
             pattern => {
                 // Destructuring (and all `let assert`): bind the subject,
@@ -492,30 +517,24 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     ));
                 }
                 let mut bound = Vec::new();
-                for (name, path) in compiled.bindings {
+                for (name, path, owned) in compiled.bindings {
                     let rendered = self.bind(&name);
+                    let path = if owned {
+                        path
+                    } else {
+                        format!("P.dup({path})")
+                    };
                     out.push_str(&format!("{indent}const {rendered} = {path};\n"));
                     bound.push(rendered);
                 }
                 if is_last {
-                    out.push_str(&self.final_statement_value(&subject, tail, indent));
+                    // The subject is moved out as the result; the pattern
+                    // bindings still drop at scope exit.
+                    (bound, out, Some(subject))
+                } else {
+                    out.push_str(&format!("{indent}P.drop({subject});\n"));
+                    (bound, out, None)
                 }
-                // The subject is always used by conditions/bindings or the
-                // final statement; if not, discard it.
-                if !out[out.find('\n').unwrap_or(0) + 1..].contains(subject.as_str()) {
-                    out.push_str(&format!("{indent}_ = {subject};\n"));
-                }
-                // Report no single binding: multiple bindings get their
-                // discards handled here since statements() tracks only one.
-                let statements_text = out.clone();
-                for rendered in bound {
-                    if !text_after_binding_uses(&statements_text, &rendered) {
-                        // Cannot know about later statements here; emit a
-                        // conservative discard only when clearly unused is
-                        // impossible, so defer to the caller via marker.
-                    }
-                }
-                (None, out)
             }
         }
     }
@@ -527,13 +546,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             TypedExpr::Float { value, .. } => format!("P.floatValue({value})"),
 
             TypedExpr::String { value, .. } => {
-                format!("P.stringValue(\"{}\")", zig_string_contents(value))
+                format!("P.copyString(\"{}\")", zig_string_contents(value))
             }
 
             TypedExpr::Block { statements, .. } => {
                 let label = self.next_label("blk");
                 let inner_indent = format!("{indent}{INDENT}");
-                let body = self.statements(statements.as_slice(), Tail::No, &inner_indent);
+                let body = self.statements(statements.as_slice(), Tail::No, &inner_indent, &[]);
                 let body = body.replace(BREAK_PLACEHOLDER, &format!("break :{label}"));
                 format!("{label}: {{\n{body}{indent}}}")
             }
@@ -548,9 +567,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let inner_indent = format!("{indent}{INDENT}");
                 let saved_scope = self.scope.clone();
                 let mut out = format!("{label}: {{\n");
-                self.pipeline_steps(first_value, assignments, &mut out, &inner_indent);
+                let steps = self.pipeline_steps(first_value, assignments, &mut out, &inner_indent);
                 let finally = self.expression(finally, &inner_indent);
-                out.push_str(&format!("{inner_indent}break :{label} {finally};\n"));
+                let result = self.fresh_name("r");
+                out.push_str(&format!("{inner_indent}const {result} = {finally};\n"));
+                for step in &steps {
+                    out.push_str(&format!("{inner_indent}P.drop({step});\n"));
+                }
+                out.push_str(&format!("{inner_indent}break :{label} {result};\n"));
                 out.push_str(&format!("{indent}}}"));
                 self.scope = saved_scope;
                 out
@@ -579,7 +603,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let label = self.next_label("case");
                 let inner_indent = format!("{indent}{INDENT}");
                 let body =
-                    self.case_clauses(subjects, clauses, Tail::No, &label, &inner_indent);
+                    self.case_clauses(subjects, clauses, Tail::No, &label, &inner_indent, &[]);
                 format!("{label}: {{\n{body}{inner_indent}unreachable;\n{indent}}}")
             }
 
@@ -592,7 +616,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
 
             TypedExpr::TupleIndex { tuple, index, .. } => {
-                format!("({}).tuple[{index}]", self.expression(tuple, indent))
+                format!("P.tupleField({}, {index})", self.expression(tuple, indent))
             }
 
             TypedExpr::List { elements, tail, .. } => {
@@ -611,11 +635,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
 
             TypedExpr::RecordAccess { record, index, .. } => {
-                format!("({}).record.fields[{index}]", self.expression(record, indent))
+                format!("P.recordField({}, {index})", self.expression(record, indent))
             }
 
             TypedExpr::PositionalAccess { record, index, .. } => {
-                format!("({}).record.fields[{index}]", self.expression(record, indent))
+                format!("P.recordField({}, {index})", self.expression(record, indent))
             }
 
             TypedExpr::RecordUpdate {
@@ -708,11 +732,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             } => {
                 let value = match inner {
                     Some(inner) => self.expression(inner, indent),
-                    // `|> echo` with no argument: echo the pipe value.
-                    None => self
-                        .pipe_value
-                        .clone()
-                        .expect("zig codegen: echo with no expression outside a pipeline"),
+                    // `|> echo` with no argument: echo the pipe value. The
+                    // pipe binding is still dropped at pipeline exit, so
+                    // this use takes its own reference.
+                    None => format!(
+                        "P.dup({})",
+                        self.pipe_value
+                            .clone()
+                            .expect("zig codegen: echo with no expression outside a pipeline")
+                    ),
                 };
                 let line = self.line_number(location);
                 format!("P.echo({value}, \"{}\", {line})", self.module.src_path)
@@ -758,15 +786,18 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         }
     }
 
+    /// Render pipeline step bindings into `out`, returning the rendered
+    /// binding identifiers so the caller can drop them at pipeline exit.
     fn pipeline_steps(
         &mut self,
         first_value: &crate::ast::TypedPipelineAssignment,
         assignments: &[(crate::ast::TypedPipelineAssignment, crate::ast::PipelineAssignmentKind)],
         out: &mut String,
         indent: &str,
-    ) {
+    ) -> Vec<String> {
         let first = self.expression(&first_value.value, indent);
         let mut previous = self.bind(&first_value.name);
+        let mut bindings = vec![previous.clone()];
         out.push_str(&format!("{indent}const {previous} = {first};\n"));
         for (assignment, _kind) in assignments {
             // A bare `|> echo` step has no expression: it echoes the value
@@ -776,9 +807,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             self.pipe_value = None;
             let rendered = self.bind(&assignment.name);
             out.push_str(&format!("{indent}const {rendered} = {value};\n"));
+            bindings.push(rendered.clone());
             previous = rendered;
         }
         self.pipe_value = Some(previous);
+        bindings
     }
 
     fn call(
@@ -996,16 +1029,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             parameter_list.push(format!("{rendered}: Value"));
             rendered_parameters.push(rendered);
         }
-        let body_text = generator.statements(body, Tail::Return, INDENT);
+        // Parameters are owned and released at exit; the env is borrowed
+        // (it belongs to the closure and is released when the closure is).
+        let body_text = generator.statements(body, Tail::Return, INDENT, &rendered_parameters);
 
         let mut discards = String::new();
         if !body_text.contains("@\"env$\"[") {
             discards.push_str(&format!("{INDENT}_ = @\"env$\";\n"));
-        }
-        for rendered in &rendered_parameters {
-            if !body_text.contains(rendered.as_str()) {
-                discards.push_str(&format!("{INDENT}_ = {rendered};\n"));
-            }
         }
 
         self.module.lifted.push(format!(
@@ -1013,22 +1043,25 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             parameter_list.join(", ")
         ));
 
+        // Creating the closure takes a reference to each captured value.
         let environment = captures
             .iter()
-            .map(|(_, rendered)| rendered.clone())
+            .map(|(_, rendered)| format!("P.dup({rendered})"))
             .join(", ");
         format!("P.makeClosure(@ptrCast(&{lambda}), &[_]Value{{ {environment} }})")
     }
 
-    /// A case in tail/statement position: clause bodies return directly.
+    /// A case in tail/statement position: clause bodies return directly,
+    /// releasing clause bindings, subjects and all enclosing live bindings
+    /// (`drops`) before each exit.
     fn case_statement(
         &mut self,
         subjects: &[TypedExpr],
         clauses: &[TypedClause],
-        tail: Tail,
         indent: &str,
+        drops: &[String],
     ) -> String {
-        let body = self.case_clauses(subjects, clauses, tail, "", indent);
+        let body = self.case_clauses(subjects, clauses, Tail::Return, "", indent, drops);
         format!("{body}{indent}unreachable;\n")
     }
 
@@ -1039,6 +1072,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         tail: Tail,
         value_label: &str,
         indent: &str,
+        pending_drops: &[String],
     ) -> String {
         let mut out = String::new();
         let mut subject_names = Vec::new();
@@ -1075,8 +1109,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 }
                 let mut bound = Vec::new();
                 let mut binding_text = String::new();
-                for (name, path) in bindings {
+                for (name, path, owned) in bindings {
                     let rendered = self.bind(&name);
+                    let path = if owned {
+                        path
+                    } else {
+                        format!("P.dup({path})")
+                    };
                     binding_text
                         .push_str(&format!("{inner_indent}const {rendered} = {path};\n"));
                     bound.push(rendered);
@@ -1085,28 +1124,46 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let mut guard_and_body = String::new();
                 if let Some(guard) = &clause.guard {
                     let guard = self.guard(guard);
+                    // A failed guard falls through to the next clause; the
+                    // clause bindings it took must be released first.
+                    let mut on_fail = String::new();
+                    for binding in &bound {
+                        on_fail.push_str(&format!("P.drop({binding}); "));
+                    }
                     guard_and_body.push_str(&format!(
-                        "{inner_indent}if (!(({guard}).bool)) break :{clause_label};\n"
+                        "{inner_indent}if (!(({guard}).bool)) {{ {on_fail}break :{clause_label}; }}\n"
                     ));
                 }
+                // Everything owned at the exit taken from this clause:
+                // clause bindings, the case subjects, and (in tail position)
+                // the enclosing scope's live bindings.
+                let exit_drops: Vec<String> = bound
+                    .iter()
+                    .chain(&subject_names)
+                    .chain(pending_drops)
+                    .cloned()
+                    .collect();
                 match tail {
                     Tail::Return => {
-                        guard_and_body
-                            .push_str(&self.final_statement(&clause.then, Tail::Return, &inner_indent));
+                        guard_and_body.push_str(&self.final_statement(
+                            &clause.then,
+                            Tail::Return,
+                            &inner_indent,
+                            &exit_drops,
+                        ));
                     }
                     Tail::No => {
                         let value = self.expression(&clause.then, &inner_indent);
+                        let result = self.fresh_name("r");
+                        guard_and_body
+                            .push_str(&format!("{inner_indent}const {result} = {value};\n"));
+                        for binding in bound.iter().chain(&subject_names) {
+                            guard_and_body
+                                .push_str(&format!("{inner_indent}P.drop({binding});\n"));
+                        }
                         guard_and_body.push_str(&format!(
-                            "{inner_indent}break :{value_label} {value};\n"
+                            "{inner_indent}break :{value_label} {result};\n"
                         ));
-                    }
-                }
-
-                // Discard pattern bindings the guard and body never read.
-                let mut discards = String::new();
-                for rendered in &bound {
-                    if !guard_and_body.contains(rendered.as_str()) {
-                        discards.push_str(&format!("{inner_indent}_ = {rendered};\n"));
                     }
                 }
 
@@ -1120,27 +1177,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 }
                 out.push_str(&clause_body);
                 out.push_str(&binding_text);
-                out.push_str(&discards);
                 out.push_str(&guard_and_body);
                 out.push_str(&format!("{indent}}}\n"));
 
                 self.scope = saved_scope;
             }
         }
-
-        // Subjects may be unused when every pattern is a catch-all.
-        let mut prefix = String::new();
-        for rendered in &subject_names {
-            let after_binding = out
-                .split(&format!("const {rendered} = "))
-                .nth(1)
-                .unwrap_or("");
-            if !after_binding[after_binding.find('\n').unwrap_or(0)..].contains(rendered.as_str())
-            {
-                prefix.push_str(&format!("{indent}_ = {rendered};\n"));
-            }
-        }
-        format!("{out}{prefix}")
+        out
     }
 
     fn pattern(&mut self, pattern: &TypedPattern, subject: &str) -> CompiledPattern {
@@ -1161,13 +1204,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             Pattern::Variable { name, .. } => {
                 compiled
                     .bindings
-                    .push((name.clone(), subject.to_string()));
+                    .push((name.clone(), subject.to_string(), false));
             }
 
             Pattern::Assign { name, pattern, .. } => {
                 compiled
                     .bindings
-                    .push((name.clone(), subject.to_string()));
+                    .push((name.clone(), subject.to_string(), false));
                 self.compile_pattern(pattern, subject, compiled);
             }
 
@@ -1184,8 +1227,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
 
             Pattern::String { value, .. } => {
+                // Borrow-compare against the static literal bytes directly;
+                // no allocation on the match path.
                 compiled.conditions.push(format!(
-                    "P.isEqual({subject}, P.stringValue(\"{}\"))",
+                    "P.stringLiteralEquals({subject}, \"{}\")",
                     zig_string_contents(value)
                 ));
             }
@@ -1203,7 +1248,8 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 if let Some((name, _)) = left_side_assignment {
                     compiled.bindings.push((
                         name.clone(),
-                        format!("P.stringValue(\"{prefix}\")"),
+                        format!("P.copyString(\"{prefix}\")"),
+                        true,
                     ));
                 }
                 if let AssignName::Variable(name) = right_side_assignment {
@@ -1213,6 +1259,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                             "P.stringDropPrefix({subject}, {})",
                             decoded_string_byte_length(left_side_string)
                         ),
+                        true,
                     ));
                 }
             }
@@ -1314,14 +1361,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 .cloned()
                 .unwrap_or_else(|| panic!("zig codegen: guard variable {name} not in scope")),
             crate::ast::ClauseGuard::TupleIndex { tuple, index, .. } => {
-                format!("({}).tuple[{index}]", self.guard(tuple))
+                format!("P.tupleField({}, {index})", self.guard(tuple))
             }
             crate::ast::ClauseGuard::FieldAccess {
                 container, index, ..
             } => {
                 let index =
                     index.expect("zig codegen: guard field access without a resolved index");
-                format!("({}).record.fields[{index}]", self.guard(container))
+                format!("P.recordField({}, {index})", self.guard(container))
             }
             crate::ast::ClauseGuard::Constant(constant) => self.constant(constant),
             crate::ast::ClauseGuard::ModuleSelect { .. } => {
@@ -1421,11 +1468,16 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
 
     fn variable(&mut self, name: &EcoString, variant: &ValueConstructorVariant) -> String {
         match variant {
-            ValueConstructorVariant::LocalVariable { .. } => self
-                .scope
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| panic!("zig codegen: variable {name} not in scope")),
+            ValueConstructorVariant::LocalVariable { .. } => {
+                let rendered = self
+                    .scope
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("zig codegen: variable {name} not in scope"));
+                // Every use takes its own reference; the binding's reference
+                // is released at scope exit.
+                format!("P.dup({rendered})")
+            }
             ValueConstructorVariant::Record {
                 name,
                 module,
@@ -1504,7 +1556,9 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
 #[derive(Default)]
 struct CompiledPattern {
     conditions: Vec<String>,
-    bindings: Vec<(EcoString, String)>,
+    /// (source name, zig expression, owned). Non-owned expressions borrow
+    /// into the subject and are wrapped in P.dup by the emitter.
+    bindings: Vec<(EcoString, String, bool)>,
 }
 
 const BREAK_PLACEHOLDER: &str = "\u{1}break\u{1}";
@@ -1739,18 +1793,6 @@ fn function_arity(expression: &TypedExpr) -> usize {
         .type_()
         .fn_arity()
         .expect("zig codegen: function reference with non-function type")
-}
-
-/// True if `text` (a rendered statement) references `name` after its own
-/// `const name = ...` binding line.
-fn text_after_binding_uses(text: &str, name: &str) -> bool {
-    match text.find(&format!("const {name} = ")) {
-        Some(position) => {
-            let after = &text[position + "const ".len() + name.len()..];
-            after.contains(name)
-        }
-        None => text.contains(name),
-    }
 }
 
 /// Quote an identifier with zig's raw identifier syntax. This side-steps
