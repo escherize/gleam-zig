@@ -4459,6 +4459,7 @@ functions are declared separately from types.";
             match name.as_str() {
                 "javascript" => Ok(Target::JavaScript),
                 "erlang" => Ok(Target::Erlang),
+                "zig" => Ok(Target::Zig),
                 "js" => {
                     self.warnings
                         .push(DeprecatedSyntaxWarning::DeprecatedTargetShorthand {

@@ -51,6 +51,21 @@ pub fn module(
     };
 
     let mut functions = String::new();
+    // Constants become zero-argument functions: their values may allocate
+    // (records, lists), which zig cannot do in a comptime const initializer.
+    for constant in &module.definitions.constants {
+        let mut generator = FunctionGenerator::new(&mut shared);
+        let value = generator.constant(&constant.value);
+        let visibility = if constant.publicity.is_private() {
+            ""
+        } else {
+            "pub "
+        };
+        functions.push_str(&format!(
+            "{visibility}fn {}() Value {{\n{INDENT}return {value};\n}}\n\n",
+            constant_identifier(&constant.name),
+        ));
+    }
     for function in &module.definitions.functions {
         let mut generator = FunctionGenerator::new(&mut shared);
         functions.push_str(&generator.function(function));
@@ -91,6 +106,10 @@ pub fn module(
 
 fn module_ref(module_name: &str) -> String {
     zig_identifier(&format!("M${module_name}"))
+}
+
+fn constant_identifier(name: &str) -> String {
+    zig_identifier(&format!("constant${name}"))
 }
 
 struct ModuleContext<'a> {
@@ -173,10 +192,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 "pub "
             };
             let parameters = (0..function.arguments.len())
-                .map(|index| format!("a{index}: Value"))
+                .map(|index| format!("{}: Value", zig_identifier(&format!("a${index}"))))
                 .join(", ");
             let forwarded = (0..function.arguments.len())
-                .map(|index| format!("a{index}"))
+                .map(|index| zig_identifier(&format!("a${index}")))
                 .join(", ");
             return format!(
                 "{visibility}fn {}({parameters}) Value {{\n{INDENT}return {import}.{}({forwarded});\n}}\n",
@@ -216,7 +235,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             let mut local_idents = Vec::new();
             for parameter_name in &parameter_names {
                 let rendered = self.bind(parameter_name);
-                let incoming = zig_identifier(&format!("{parameter_name}$param"));
+                let incoming = zig_identifier(&format!("p${parameter_name}"));
                 parameter_list.push(format!("{incoming}: Value"));
                 locals.push(format!("{INDENT}var {rendered} = {incoming};\n"));
                 local_idents.push(rendered);
@@ -651,7 +670,20 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     }
                 }
                 ModuleValueConstructor::Constant { .. } => {
-                    panic!("zig codegen: module constants are not supported yet")
+                    let label = match expression {
+                        TypedExpr::ModuleSelect { label, .. } => label.clone(),
+                        _ => unreachable!("constant is only reachable via module select"),
+                    };
+                    if *module_name == self.module.module_name {
+                        format!("{}()", constant_identifier(&label))
+                    } else {
+                        let _ = self.module.modules_used.insert(module_name.clone());
+                        format!(
+                            "{}.{}()",
+                            module_ref(module_name),
+                            constant_identifier(&label)
+                        )
+                    }
                 }
             },
 
@@ -700,9 +732,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 format!("P.negateBool({})", self.expression(value, indent))
             }
 
-            TypedExpr::BitArray { .. } => {
-                panic!("zig codegen: bit arrays are not supported yet")
-            }
+            TypedExpr::BitArray { .. } => "P.unsupportedBitArray()".to_string(),
 
             TypedExpr::Invalid { .. } => {
                 panic!("zig codegen: invalid expression reached codegen")
@@ -831,12 +861,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             module.as_str().replace('/', "$")
         ));
         let parameters = (0..arity)
-            .map(|index| format!("p{index}: Value"))
+            .map(|index| format!("{}: Value", zig_identifier(&format!("p${index}"))))
             .join(", ");
-        let forwarded = (0..arity).map(|index| format!("p{index}")).join(", ");
+        let forwarded = (0..arity)
+            .map(|index| zig_identifier(&format!("p${index}")))
+            .join(", ");
         let separator = if arity == 0 { "" } else { ", " };
         self.module.lifted.push(format!(
-            "fn {wrapper}(env: []const Value{separator}{parameters}) Value {{\n{INDENT}_ = env;\n{INDENT}return {target}({forwarded});\n}}\n"
+            "fn {wrapper}(@\"env$\": []const Value{separator}{parameters}) Value {{\n{INDENT}_ = @\"env$\";\n{INDENT}return {target}({forwarded});\n}}\n"
         ));
         let _ = self.module.wrapper_cache.insert(key, wrapper.clone());
         format!("P.makeClosure(@ptrCast(&{wrapper}), &[_]Value{{}})")
@@ -855,11 +887,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         }
         let wrapper = zig_identifier(&format!("wrapc${name}${arity}"));
         let parameters = (0..arity)
-            .map(|index| format!("p{index}: Value"))
+            .map(|index| format!("{}: Value", zig_identifier(&format!("p${index}"))))
             .join(", ");
-        let forwarded = (0..arity).map(|index| format!("p{index}")).join(", ");
+        let forwarded = (0..arity)
+            .map(|index| zig_identifier(&format!("p${index}")))
+            .join(", ");
         self.module.lifted.push(format!(
-            "fn {wrapper}(env: []const Value, {parameters}) Value {{\n{INDENT}_ = env;\n{INDENT}return P.makeRecord(\"{name}\", &[_]Value{{ {forwarded} }});\n}}\n"
+            "fn {wrapper}(@\"env$\": []const Value, {parameters}) Value {{\n{INDENT}_ = @\"env$\";\n{INDENT}return P.makeRecord(\"{name}\", &[_]Value{{ {forwarded} }});\n}}\n"
         ));
         let _ = self.module.wrapper_cache.insert(key, wrapper.clone());
         format!("P.makeClosure(@ptrCast(&{wrapper}), &[_]Value{{}})")
@@ -889,9 +923,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
 
         let mut generator = FunctionGenerator::new(self.module);
         for (index, (name, _)) in captures.iter().enumerate() {
-            let _ = generator.scope.insert(name.clone(), format!("env[{index}]"));
+            let _ = generator
+                .scope
+                .insert(name.clone(), format!("@\"env$\"[{index}]"));
         }
-        let mut parameter_list = vec!["env: []const Value".to_string()];
+        let mut parameter_list = vec!["@\"env$\": []const Value".to_string()];
         let mut rendered_parameters = Vec::new();
         for parameter_name in parameter_names {
             let rendered = generator.bind(&parameter_name);
@@ -901,8 +937,8 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let body_text = generator.statements(body, Tail::Return, INDENT);
 
         let mut discards = String::new();
-        if !body_text.contains("env[") {
-            discards.push_str(&format!("{INDENT}_ = env;\n"));
+        if !body_text.contains("@\"env$\"[") {
+            discards.push_str(&format!("{INDENT}_ = @\"env$\";\n"));
         }
         for rendered in &rendered_parameters {
             if !body_text.contains(rendered.as_str()) {
@@ -1169,8 +1205,23 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 }
             }
 
-            Pattern::BitArray { .. } | Pattern::BitArraySize { .. } => {
-                panic!("zig codegen: bit array patterns are not supported yet")
+            // Bit arrays cannot be constructed on this target, so a clause
+            // matching one can only be reached if the value came from
+            // somewhere unsupported; panic at runtime rather than failing
+            // the whole module at compile time. The panicking condition is
+            // pushed first, so segment bindings are never evaluated.
+            Pattern::BitArray { segments, .. } => {
+                compiled
+                    .conditions
+                    .push("P.unsupportedBitArrayPattern()".to_string());
+                for segment in segments {
+                    self.compile_pattern(&segment.value, "P.unsupportedBitArray()", compiled);
+                }
+            }
+            Pattern::BitArraySize { .. } => {
+                compiled
+                    .conditions
+                    .push("P.unsupportedBitArrayPattern()".to_string());
             }
 
             Pattern::Invalid { .. } => {
@@ -1227,16 +1278,68 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             Constant::String { value, .. } => {
                 format!("P.stringValue(\"{}\")", zig_string_contents(value))
             }
-            Constant::Record {
-                name, arguments, module, ..
-            } if arguments.as_ref().is_none_or(|arguments| arguments.is_empty()) => {
-                let module = module
-                    .as_ref()
-                    .map(|(module, _)| module.clone())
-                    .unwrap_or_else(|| PRELUDE_MODULE_NAME.into());
-                self.record_construction(&module, name, &[])
+            Constant::Tuple { elements, .. } => {
+                let elements = elements
+                    .iter()
+                    .map(|element| self.constant(element))
+                    .join(", ");
+                format!("P.tupleValue(&[_]Value{{ {elements} }})")
             }
-            _ => panic!("zig codegen: constant is not supported yet: {constant:?}"),
+            Constant::List { elements, .. } => {
+                if elements.is_empty() {
+                    return "P.emptyList()".to_string();
+                }
+                let elements = elements
+                    .iter()
+                    .map(|element| self.constant(element))
+                    .join(", ");
+                format!("P.listFromSlice(&[_]Value{{ {elements} }}, P.emptyList())")
+            }
+            Constant::Record {
+                name,
+                arguments,
+                record_constructor,
+                ..
+            } => {
+                let module = record_constructor
+                    .as_ref()
+                    .and_then(|constructor| match &constructor.variant {
+                        ValueConstructorVariant::Record { module, .. } => Some(module.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| PRELUDE_MODULE_NAME.into());
+                let arguments = arguments
+                    .as_ref()
+                    .map(|arguments| {
+                        arguments
+                            .iter()
+                            .map(|argument| self.constant(&argument.value))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                self.record_construction(&module, name, &arguments)
+            }
+            Constant::Var {
+                name, constructor, ..
+            } => {
+                let constructor = constructor
+                    .as_ref()
+                    .expect("zig codegen: constant var with no constructor");
+                self.variable(name, &constructor.variant)
+            }
+            Constant::BinaryOperator {
+                operator,
+                left,
+                right,
+                ..
+            } => {
+                let left = self.constant(left);
+                let right = self.constant(right);
+                binary_operator(*operator, &left, &right)
+            }
+            _ => {
+                panic!("zig codegen: constant is not supported yet: {constant:?}")
+            }
         }
     }
 
@@ -1277,8 +1380,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 arity,
                 ..
             } => self.function_reference(&module.clone(), &name.clone(), *arity),
-            ValueConstructorVariant::ModuleConstant { .. } => {
-                panic!("zig codegen: module constants are not supported yet")
+            ValueConstructorVariant::ModuleConstant { module, name, .. } => {
+                if *module == self.module.module_name {
+                    format!("{}()", constant_identifier(name))
+                } else {
+                    let _ = self.module.modules_used.insert(module.clone());
+                    format!("{}.{}()", module_ref(module), constant_identifier(name))
+                }
             }
         }
     }
@@ -1308,11 +1416,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     /// Bind a source-level name, renaming to keep rendered names unique
     /// within the function so shadowing works and usage scans are exact.
     fn bind(&mut self, name: &EcoString) -> String {
-        let mut rendered: EcoString = name.clone();
+        // The v$ prefix keeps locals out of the module-level namespace:
+        // zig errors when a local shadows any file-scope declaration.
+        let mut rendered: EcoString = EcoString::from(format!("v${name}"));
         let mut counter = 0;
         while self.used_names.contains(&rendered) {
             counter += 1;
-            rendered = EcoString::from(format!("{name}${counter}"));
+            rendered = EcoString::from(format!("v${name}${counter}"));
         }
         let _ = self.used_names.insert(rendered.clone());
         let identifier = zig_identifier(&rendered);

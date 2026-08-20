@@ -371,6 +371,23 @@ fn inspect(writer: anytype, value: Value) void {
     }
 }
 
+/// Bit arrays have no zig representation yet. Functions containing bit
+/// array patterns or literals still compile; reaching one at runtime panics.
+pub fn unsupportedBitArrayPattern() bool {
+    @panic("BitArray is not supported on the zig target yet");
+}
+
+pub fn unsupportedBitArray() Value {
+    @panic("BitArray is not supported on the zig target yet");
+}
+
+/// Render a value in Gleam syntax, for string.inspect and friends.
+pub fn inspectValue(value: Value) []const u8 {
+    var aw = std.Io.Writer.Allocating.init(allocator);
+    inspect(&aw.writer, value);
+    return aw.written();
+}
+
 /// `echo` prints "file:line" then the inspected value to stderr and
 /// returns the value, matching the JavaScript target's echo.
 pub fn echo(value: Value, file: []const u8, line: u32) Value {
