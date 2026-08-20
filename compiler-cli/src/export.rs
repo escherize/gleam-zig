@@ -272,3 +272,62 @@ pub fn package_information(paths: &ProjectPaths, out: Utf8PathBuf) -> Result<()>
     fs::write_outputs_under(&[out], paths.root())?;
     Ok(())
 }
+
+/// Build a native release-mode executable via the zig target.
+///
+pub fn zig_executable(paths: &ProjectPaths, output: Option<Utf8PathBuf>) -> Result<()> {
+    let target = Target::Zig;
+    let mode = Mode::Prod;
+
+    let manifest = crate::build::download_dependencies(paths, crate::cli::Reporter::new())?;
+    let build_options = Options {
+        root_target_support: TargetSupport::Enforced,
+        warnings_as_errors: false,
+        codegen: Codegen::All,
+        compile: Compile::All,
+        mode,
+        target: Some(target),
+        no_print_progress: false,
+    };
+    let built = crate::build::main(paths, build_options, manifest)?;
+    let package_name = built.root_package.config.name.clone();
+
+    // The executable calls main; fail early if there is none.
+    let _ = built.get_main_function(&package_name, target)?;
+
+    // The entrypoint lives at the target build root so every generated
+    // module is importable.
+    let entrypoint = format!(
+        r#"const P = @import("prelude.zig");
+const module = @import("{package_name}/{package_name}.zig");
+pub fn main() void {{
+    P.drop(module.@"main"());
+    P.leakCheckExit();
+}}
+"#
+    );
+    let build_root = paths.build_directory_for_target(mode, target);
+    let entrypoint_path = build_root.join(format!("entrypoint@{package_name}.zig"));
+    fs::write(&entrypoint_path, &entrypoint)?;
+
+    let output = output.unwrap_or_else(|| Utf8PathBuf::from(package_name.as_str()));
+    let zig = std::env::var("GLEAM_ZIG").unwrap_or_else(|_| "zig".into());
+    let status = std::process::Command::new(&zig)
+        .arg("build-exe")
+        .arg(entrypoint_path.as_str())
+        .arg("-OReleaseFast")
+        .arg(format!("-femit-bin={output}"))
+        .status()
+        .map_err(|error| gleam_core::Error::ShellCommand {
+            program: zig.clone(),
+            reason: gleam_core::error::ShellCommandFailureReason::IoError(error.kind()),
+        })?;
+    if !status.success() {
+        return Err(gleam_core::Error::ShellCommand {
+            program: zig,
+            reason: gleam_core::error::ShellCommandFailureReason::Unknown,
+        });
+    }
+    println!("Wrote {output}");
+    Ok(())
+}

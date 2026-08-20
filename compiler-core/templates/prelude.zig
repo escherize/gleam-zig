@@ -20,13 +20,18 @@
 // numbers, Erlang has bignums; targets choose a pragmatic representation).
 
 const std = @import("std");
+const builtin = @import("builtin");
 
-/// Reference-counted allocations come from a leak-checking allocator;
-/// `leakCheckExit` reports anything still live after `main`.
+/// Debug builds (the `gleam run` default via `zig run`) use a
+/// leak-checking allocator and verify on exit that no reference-counted
+/// allocation outlives main. Release builds use the fast allocator and
+/// skip the check.
+const leak_checking = builtin.mode == .Debug;
+
 pub var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
 fn rc_allocator() std.mem.Allocator {
-    return debug_allocator.allocator();
+    return if (leak_checking) debug_allocator.allocator() else std.heap.smp_allocator;
 }
 
 /// Scratch allocator for FFI temporaries that are not reference counted.
@@ -47,6 +52,20 @@ pub const Value = union(enum) {
     /// Custom type value. Variants are identified by name.
     record: *const Record,
     closure: Closure,
+    /// Byte-aligned bit array; views share a reference-counted buffer.
+    bit_array: *const BitArray,
+};
+
+pub const BitArray = struct {
+    rc: usize,
+    /// The full shared buffer (an rc'd string-style allocation, or empty).
+    buffer: []const u8,
+    offset: usize,
+    length: usize,
+
+    pub fn bytes(self: *const BitArray) []const u8 {
+        return self.buffer[self.offset .. self.offset + self.length];
+    }
 };
 
 pub const Cons = struct {
@@ -138,6 +157,9 @@ pub fn dup(value: Value) Value {
         .closure => |c| if (c.env.len != 0) {
             valueSliceRc(c.env).* += 1;
         },
+        .bit_array => |b| {
+            @constCast(b).rc += 1;
+        },
     }
     return value;
 }
@@ -178,6 +200,18 @@ pub fn drop(value: Value) void {
                 freeValueSlice(c.env);
             }
         },
+        .bit_array => |b| {
+            const mutable = @constCast(b);
+            mutable.rc -= 1;
+            if (mutable.rc == 0) {
+                if (b.buffer.len != 0) {
+                    const rc = stringRc(b.buffer);
+                    rc.* -= 1;
+                    if (rc.* == 0) freeString(b.buffer);
+                }
+                rc_allocator().destroy(mutable);
+            }
+        },
     }
 }
 
@@ -195,7 +229,9 @@ fn dropList(head: ?*const Cons) void {
 }
 
 /// Report leaked reference-counted allocations after main returns.
+/// A no-op in release builds.
 pub fn leakCheckExit() void {
+    if (!leak_checking) return;
     const leaks = debug_allocator.detectLeaks();
     if (leaks != 0) {
         std.debug.print("gleam-zig: {d} leaked allocation(s)\n", .{leaks});
@@ -480,6 +516,240 @@ pub fn consReuse(token: ?*Cons, head: Value, tail: Value) Value {
     return cons(head, tail);
 }
 
+// --------------------------------------------------------- bit arrays
+
+/// Wrap owned buffer bytes (an allocString payload) without copying.
+fn bitArrayFromOwnedBuffer(buffer: []const u8, offset: usize, length: usize) Value {
+    const array = rc_allocator().create(BitArray) catch @panic("out of memory");
+    array.* = BitArray{ .rc = 1, .buffer = buffer, .offset = offset, .length = length };
+    return Value{ .bit_array = array };
+}
+
+pub fn emptyBitArray() Value {
+    return bitArrayFromOwnedBuffer(&.{}, 0, 0);
+}
+
+/// Copy bytes into a fresh bit array (used by FFI).
+pub fn copyBitArray(bytes: []const u8) Value {
+    if (bytes.len == 0) return emptyBitArray();
+    const owned = allocString(bytes.len);
+    @memcpy(owned, bytes);
+    return bitArrayFromOwnedBuffer(owned, 0, bytes.len);
+}
+
+/// Construction builder. Backed by scratch memory; finish() copies into a
+/// reference-counted buffer.
+pub const BitArrayBuilder = struct {
+    bytes: std.ArrayList(u8) = .empty,
+
+    fn append(self: *BitArrayBuilder, data: []const u8) void {
+        self.bytes.appendSlice(allocator, data) catch @panic("out of memory");
+    }
+};
+
+pub fn baBuilder() BitArrayBuilder {
+    return .{};
+}
+
+/// Consumes the value. Writes `bits` (a multiple of 8) of the integer.
+pub fn baAddInt(builder: *BitArrayBuilder, value: Value, bits: usize, little: bool) void {
+    const byte_count = bits / 8;
+    var v: u64 = @bitCast(value.int);
+    var buffer: [8]u8 = undefined;
+    var index: usize = 0;
+    while (index < byte_count) : (index += 1) {
+        if (little) {
+            buffer[index] = @truncate(v);
+        } else {
+            buffer[byte_count - 1 - index] = @truncate(v);
+        }
+        v >>= 8;
+    }
+    builder.append(buffer[0..byte_count]);
+}
+
+/// Consumes the value.
+pub fn baAddFloat(builder: *BitArrayBuilder, value: Value, bits: usize, little: bool) void {
+    if (bits == 32) {
+        const as32: f32 = @floatCast(value.float);
+        var raw: u32 = @bitCast(as32);
+        var buffer: [4]u8 = undefined;
+        for (0..4) |index| {
+            if (little) buffer[index] = @truncate(raw) else buffer[3 - index] = @truncate(raw);
+            raw >>= 8;
+        }
+        builder.append(&buffer);
+    } else {
+        var raw: u64 = @bitCast(value.float);
+        var buffer: [8]u8 = undefined;
+        for (0..8) |index| {
+            if (little) buffer[index] = @truncate(raw) else buffer[7 - index] = @truncate(raw);
+            raw >>= 8;
+        }
+        builder.append(&buffer);
+    }
+}
+
+/// Consumes the string value.
+pub fn baAddUtf8(builder: *BitArrayBuilder, value: Value) void {
+    builder.append(value.string);
+    drop(value);
+}
+
+/// Consumes the int value (a codepoint).
+pub fn baAddUtf8Codepoint(builder: *BitArrayBuilder, value: Value) void {
+    var buffer: [4]u8 = undefined;
+    const length = std.unicode.utf8Encode(@intCast(value.int), &buffer) catch 0;
+    builder.append(buffer[0..length]);
+}
+
+/// Consumes the bit array value.
+pub fn baAddBits(builder: *BitArrayBuilder, value: Value) void {
+    builder.append(value.bit_array.bytes());
+    drop(value);
+}
+
+pub fn baFinish(builder: *BitArrayBuilder) Value {
+    defer builder.bytes.deinit(allocator);
+    return copyBitArray(builder.bytes.items);
+}
+
+/// Pattern matcher. Extractors run left to right as short-circuit
+/// conditions, advancing the cursor and storing raw (non reference
+/// counted) values in slots, so a failed match owns nothing.
+pub const BitArrayMatcher = struct {
+    data: []const u8,
+    cursor: usize = 0,
+    ints: [16]i64 = @splat(0),
+    /// (offset, length) pairs for rest-slice bindings.
+    marks: [16][2]usize = @splat(.{ 0, 0 }),
+};
+
+/// Borrows the subject.
+pub fn baMatcher(subject: Value) BitArrayMatcher {
+    return .{ .data = subject.bit_array.bytes() };
+}
+
+/// Size of an int/float segment in bits, from a runtime value.
+pub fn baBitCount(value: Value) usize {
+    const bits: usize = @intCast(value.int);
+    if (bits % 8 != 0) @panic("non-byte-aligned bit array segments are not supported yet");
+    return bits;
+}
+
+pub fn baBitsToBytes(bits: usize) usize {
+    if (bits % 8 != 0) @panic("non-byte-aligned bit array segments are not supported yet");
+    return bits / 8;
+}
+
+pub fn baReadInt(
+    matcher: *BitArrayMatcher,
+    bits: usize,
+    signed: bool,
+    little: bool,
+    slot: usize,
+) bool {
+    if (bits % 8 != 0) @panic("non-byte-aligned bit array segments are not supported yet");
+    const byte_count = bits / 8;
+    if (matcher.cursor + byte_count > matcher.data.len) return false;
+    var raw: u64 = 0;
+    const view = matcher.data[matcher.cursor .. matcher.cursor + byte_count];
+    for (0..byte_count) |index| {
+        const byte = if (little) view[byte_count - 1 - index] else view[index];
+        raw = (raw << 8) | byte;
+    }
+    if (signed and byte_count < 8 and byte_count > 0) {
+        const shift: u6 = @intCast(64 - bits);
+        raw = @bitCast(@as(i64, @bitCast(raw << shift)) >> shift);
+    }
+    matcher.ints[slot] = @bitCast(raw);
+    matcher.cursor += byte_count;
+    return true;
+}
+
+pub fn baReadFloat(matcher: *BitArrayMatcher, bits: usize, little: bool, slot: usize) bool {
+    const byte_count = bits / 8;
+    if (matcher.cursor + byte_count > matcher.data.len) return false;
+    var raw: u64 = 0;
+    const view = matcher.data[matcher.cursor .. matcher.cursor + byte_count];
+    for (0..byte_count) |index| {
+        const byte = if (little) view[byte_count - 1 - index] else view[index];
+        raw = (raw << 8) | byte;
+    }
+    const value: f64 = if (bits == 32)
+        @floatCast(@as(f32, @bitCast(@as(u32, @truncate(raw)))))
+    else
+        @bitCast(raw);
+    matcher.ints[slot] = @bitCast(value);
+    matcher.cursor += byte_count;
+    return true;
+}
+
+pub fn baReadUtf8Codepoint(matcher: *BitArrayMatcher, slot: usize) bool {
+    if (matcher.cursor >= matcher.data.len) return false;
+    const length = std.unicode.utf8ByteSequenceLength(matcher.data[matcher.cursor]) catch
+        return false;
+    if (matcher.cursor + length > matcher.data.len) return false;
+    const view = matcher.data[matcher.cursor .. matcher.cursor + length];
+    const codepoint = std.unicode.utf8Decode(view) catch return false;
+    matcher.ints[slot] = codepoint;
+    matcher.cursor += length;
+    return true;
+}
+
+/// Fixed-size bytes segment; records a mark for the binding.
+pub fn baReadBytes(matcher: *BitArrayMatcher, byte_count: usize, slot: usize) bool {
+    if (matcher.cursor + byte_count > matcher.data.len) return false;
+    matcher.marks[slot] = .{ matcher.cursor, byte_count };
+    matcher.cursor += byte_count;
+    return true;
+}
+
+/// Rest-of-input segment (must be last); always matches.
+pub fn baReadRest(matcher: *BitArrayMatcher, slot: usize) bool {
+    matcher.marks[slot] = .{ matcher.cursor, matcher.data.len - matcher.cursor };
+    matcher.cursor = matcher.data.len;
+    return true;
+}
+
+/// Literal utf8 prefix (e.g. `<<"ok":utf8, ..>>` patterns).
+pub fn baMatchLiteral(matcher: *BitArrayMatcher, literal: []const u8) bool {
+    if (matcher.cursor + literal.len > matcher.data.len) return false;
+    if (!std.mem.eql(u8, matcher.data[matcher.cursor .. matcher.cursor + literal.len], literal)) {
+        return false;
+    }
+    matcher.cursor += literal.len;
+    return true;
+}
+
+/// The whole input must have been consumed for the pattern to match.
+pub fn baAtEnd(matcher: *BitArrayMatcher) bool {
+    return matcher.cursor == matcher.data.len;
+}
+
+pub fn baIntSlot(matcher: *BitArrayMatcher, slot: usize) Value {
+    return intValue(matcher.ints[slot]);
+}
+
+pub fn baFloatSlot(matcher: *BitArrayMatcher, slot: usize) Value {
+    return floatValue(@bitCast(matcher.ints[slot]));
+}
+
+/// Owned view sharing the subject's buffer (borrows the subject).
+pub fn baSliceSlot(matcher: *BitArrayMatcher, subject: Value, slot: usize) Value {
+    const mark = matcher.marks[slot];
+    const source = subject.bit_array;
+    if (source.buffer.len != 0) stringRc(source.buffer).* += 1;
+    const array = rc_allocator().create(BitArray) catch @panic("out of memory");
+    array.* = BitArray{
+        .rc = 1,
+        .buffer = source.buffer,
+        .offset = source.offset + mark[0],
+        .length = mark[1],
+    };
+    return Value{ .bit_array = array };
+}
+
 // --------------------------------------------------------- pattern support
 // Pattern helpers BORROW the subject: the subject temporary stays owned by
 // the enclosing case and is dropped once, after a clause is selected.
@@ -501,16 +771,6 @@ pub fn stringLiteralEquals(value: Value, literal: []const u8) bool {
 
 pub fn recordHasName(value: Value, name: []const u8) bool {
     return std.mem.eql(u8, value.record.name, name);
-}
-
-/// Bit arrays have no zig representation yet. Functions containing bit
-/// array patterns or literals still compile; reaching one at runtime panics.
-pub fn unsupportedBitArrayPattern() bool {
-    @panic("BitArray is not supported on the zig target yet");
-}
-
-pub fn unsupportedBitArray() Value {
-    @panic("BitArray is not supported on the zig target yet");
 }
 
 // ---------------------------------------------------------------- equality
@@ -552,6 +812,7 @@ pub fn isEqual(a: Value, b: Value) bool {
         // Function equality is reference equality, as on other targets.
         .closure => a.closure.function == b.closure.function and
             a.closure.env.ptr == b.closure.env.ptr,
+        .bit_array => std.mem.eql(u8, a.bit_array.bytes(), b.bit_array.bytes()),
     };
 }
 
@@ -647,6 +908,14 @@ fn inspect(writer: anytype, value: Value) void {
             }
         },
         .closure => writer.print("//fn", .{}) catch {},
+        .bit_array => |b| {
+            writer.print("<<", .{}) catch {};
+            for (b.bytes(), 0..) |byte, index| {
+                if (index != 0) writer.print(", ", .{}) catch {};
+                writer.print("{d}", .{byte}) catch {};
+            }
+            writer.print(">>", .{}) catch {};
+        },
     }
 }
 

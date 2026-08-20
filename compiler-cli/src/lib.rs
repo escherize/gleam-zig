@@ -659,6 +659,10 @@ impl Command {
                 let paths = find_project_paths(directory)?;
                 export::package_information(&paths, output)
             }
+            Self::Export(ExportTarget::ZigExecutable { output }) => {
+                let paths = find_project_paths(directory)?;
+                export::zig_executable(&paths, output)
+            }
         }
     }
 }
@@ -703,6 +707,12 @@ pub enum ExportTarget {
         /// The path to write the JSON file to
         #[arg(long = "out", required = true)]
         output: Utf8PathBuf,
+    },
+    /// A native release-mode executable built via the zig target
+    ZigExecutable {
+        /// The path to write the executable to (defaults to the package name)
+        #[arg(long = "out")]
+        output: Option<Utf8PathBuf>,
     },
 }
 

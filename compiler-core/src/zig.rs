@@ -558,6 +558,9 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let mut out = format!("{indent}const {subject} = {value};\n");
                 let compiled = self.pattern(pattern, &subject);
                 let line = self.line_number(&assignment.location);
+                for setup in &compiled.setup {
+                    out.push_str(&format!("{indent}{setup}\n"));
+                }
                 if !compiled.conditions.is_empty() {
                     let condition = compiled.conditions.join(" and ");
                     out.push_str(&format!(
@@ -843,7 +846,9 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 format!("P.negateBool({})", self.expression(value, indent))
             }
 
-            TypedExpr::BitArray { .. } => "P.unsupportedBitArray()".to_string(),
+            TypedExpr::BitArray { segments, .. } => {
+                self.bit_array_construction(segments, indent)
+            }
 
             TypedExpr::Invalid { .. } => {
                 panic!("zig codegen: invalid expression reached codegen")
@@ -1202,15 +1207,20 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let inner_indent = format!("{indent}{INDENT}");
                 let saved_scope = self.scope.clone();
 
+                let mut setup = Vec::new();
                 let mut conditions = Vec::new();
                 let mut bindings = Vec::new();
                 for (pattern, subject) in multi_pattern.iter().zip(&subject_names) {
                     let compiled = self.pattern(pattern, subject);
+                    setup.extend(compiled.setup);
                     conditions.extend(compiled.conditions);
                     bindings.extend(compiled.bindings);
                 }
 
                 let mut clause_body = String::new();
+                for line in &setup {
+                    clause_body.push_str(&format!("{inner_indent}{line}\n"));
+                }
                 if !conditions.is_empty() {
                     clause_body.push_str(&format!(
                         "{inner_indent}if (!({})) break :{clause_label};\n",
@@ -1444,28 +1454,315 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 }
             }
 
-            // Bit arrays cannot be constructed on this target, so a clause
-            // matching one can only be reached if the value came from
-            // somewhere unsupported; panic at runtime rather than failing
-            // the whole module at compile time. The panicking condition is
-            // pushed first, so segment bindings are never evaluated.
             Pattern::BitArray { segments, .. } => {
-                compiled
-                    .conditions
-                    .push("P.unsupportedBitArrayPattern()".to_string());
-                for segment in segments {
-                    self.compile_pattern(&segment.value, "P.unsupportedBitArray()", compiled);
-                }
+                self.compile_bit_array_pattern(segments, subject, compiled);
             }
+            // Sizes are handled inside compile_bit_array_pattern.
             Pattern::BitArraySize { .. } => {
-                compiled
-                    .conditions
-                    .push("P.unsupportedBitArrayPattern()".to_string());
+                panic!("zig codegen: bit array size outside a bit array pattern")
             }
 
             Pattern::Invalid { .. } => {
                 panic!("zig codegen: invalid pattern reached codegen")
             }
+        }
+    }
+
+    /// What a bit array segment holds, derived from its options.
+    /// v1 supports byte-aligned segments only.
+    fn segment_layout<T>(
+        options: &[crate::ast::BitArrayOption<T>],
+    ) -> (SegmentKind, Option<&T>, bool, bool) {
+        use crate::ast::BitArrayOption as Opt;
+        let mut kind = SegmentKind::Int;
+        let mut size = None;
+        let mut signed = false;
+        let mut little = false;
+        for option in options {
+            match option {
+                Opt::Int { .. } => kind = SegmentKind::Int,
+                Opt::Float { .. } => kind = SegmentKind::Float,
+                Opt::Bytes { .. } => kind = SegmentKind::Bytes,
+                Opt::Bits { .. } => kind = SegmentKind::Bits,
+                Opt::Utf8 { .. } => kind = SegmentKind::Utf8,
+                Opt::Utf8Codepoint { .. } => kind = SegmentKind::Utf8Codepoint,
+                Opt::Signed { .. } => signed = true,
+                Opt::Unsigned { .. } => signed = false,
+                Opt::Little { .. } => little = true,
+                Opt::Big { .. } => little = false,
+                // Native endianness would make output machine-dependent.
+                Opt::Native { .. } => little = cfg!(target_endian = "little"),
+                Opt::Size { value, .. } => size = Some(value.as_ref()),
+                Opt::Unit { value, .. } => {
+                    if *value != 1 && *value != 8 {
+                        panic!("zig codegen: bit array unit {value} is not supported yet")
+                    }
+                }
+                Opt::Utf16 { .. }
+                | Opt::Utf32 { .. }
+                | Opt::Utf16Codepoint { .. }
+                | Opt::Utf32Codepoint { .. } => {
+                    panic!("zig codegen: utf16/utf32 bit array segments are not supported yet")
+                }
+            }
+        }
+        (kind, size, signed, little)
+    }
+
+    fn bit_array_construction(
+        &mut self,
+        segments: &[crate::ast::TypedExprBitArraySegment],
+        indent: &str,
+    ) -> String {
+        let label = self.next_label("ba");
+        let builder = self.fresh_name("b");
+        let inner_indent = format!("{indent}{INDENT}");
+        let mut out = format!("{label}: {{\n{inner_indent}var {builder} = P.baBuilder();\n");
+        for segment in segments {
+            let (kind, size, _signed, little) = Self::segment_layout(&segment.options);
+            let value = self.expression(&segment.value, &inner_indent);
+            match kind {
+                SegmentKind::Int => {
+                    let bits = size
+                        .map(|size| self.size_bits_expression(size, &inner_indent))
+                        .unwrap_or_else(|| "8".to_string());
+                    out.push_str(&format!(
+                        "{inner_indent}P.baAddInt(&{builder}, {value}, {bits}, {little});\n"
+                    ));
+                }
+                SegmentKind::Float => {
+                    let bits = size
+                        .map(|size| self.size_bits_expression(size, &inner_indent))
+                        .unwrap_or_else(|| "64".to_string());
+                    out.push_str(&format!(
+                        "{inner_indent}P.baAddFloat(&{builder}, {value}, {bits}, {little});\n"
+                    ));
+                }
+                SegmentKind::Utf8 => {
+                    out.push_str(&format!("{inner_indent}P.baAddUtf8(&{builder}, {value});\n"));
+                }
+                SegmentKind::Utf8Codepoint => {
+                    out.push_str(&format!(
+                        "{inner_indent}P.baAddUtf8Codepoint(&{builder}, {value});\n"
+                    ));
+                }
+                SegmentKind::Bytes | SegmentKind::Bits => {
+                    out.push_str(&format!("{inner_indent}P.baAddBits(&{builder}, {value});\n"));
+                }
+            }
+        }
+        out.push_str(&format!(
+            "{inner_indent}break :{label} P.baFinish(&{builder});\n{indent}}}"
+        ));
+        out
+    }
+
+    /// A construction-side size expression, in bits. Literals are checked
+    /// for byte alignment at compile time; runtime values at runtime.
+    fn size_bits_expression(&mut self, size: &TypedExpr, indent: &str) -> String {
+        match size {
+            TypedExpr::Int { int_value, .. } => {
+                let bits: usize = int_value
+                    .clone()
+                    .try_into()
+                    .expect("zig codegen: negative bit array size");
+                if bits % 8 != 0 {
+                    panic!("zig codegen: non-byte-aligned bit array segments are not supported yet")
+                }
+                format!("{bits}")
+            }
+            _ => format!("P.baBitCount({})", self.expression(size, indent)),
+        }
+    }
+
+    fn compile_bit_array_pattern(
+        &mut self,
+        segments: &[crate::ast::TypedPatternBitArraySegment],
+        subject: &str,
+        compiled: &mut CompiledPattern,
+    ) {
+        use crate::ast::BitArraySize;
+        let matcher = self.fresh_name("m");
+        compiled
+            .setup
+            .push(format!("var {matcher} = P.baMatcher({subject});"));
+
+        // Slot indices for values extracted so far, by pattern-local name,
+        // so later segment sizes can reference earlier int bindings.
+        let mut int_slots: Vec<(EcoString, usize)> = Vec::new();
+        let mut slot = 0;
+        let mut ends_with_rest = false;
+
+        for (index, segment) in segments.iter().enumerate() {
+            let is_last = index == segments.len() - 1;
+            let (kind, size, signed, little) = Self::segment_layout(&segment.options);
+
+            // A size expression: bits for ints/floats, bytes for byte
+            // segments. Constant or a reference to an earlier int binding.
+            // In patterns the size option wraps a Pattern; unwrap the
+            // literal-or-variable forms.
+            let size_expr = size.map(|size| {
+                let inner: &BitArraySize<_> = match size {
+                    Pattern::BitArraySize(inner) => inner,
+                    Pattern::Int { int_value, .. } => {
+                        let n: i64 = int_value
+                            .try_into()
+                            .expect("zig codegen: bit array size out of range");
+                        return format!("{n}");
+                    }
+                    other => panic!(
+                        "zig codegen: bit array size pattern is not supported yet: {other:?}"
+                    ),
+                };
+                match inner {
+                    BitArraySize::Int { int_value, .. } => {
+                        let n: i64 = int_value
+                            .try_into()
+                            .expect("zig codegen: bit array size out of range");
+                        format!("{n}")
+                    }
+                    BitArraySize::Variable { name, .. } => {
+                        if let Some((_, slot)) =
+                            int_slots.iter().find(|(bound, _)| bound == name)
+                        {
+                            format!("@as(usize, @intCast({matcher}.ints[{slot}]))")
+                        } else {
+                            let rendered = self.scope.get(name).cloned().unwrap_or_else(|| {
+                                panic!(
+                                    "zig codegen: bit array size variable {name} not in scope"
+                                )
+                            });
+                            format!("@as(usize, @intCast(({rendered}).int))")
+                        }
+                    }
+                    _ => panic!(
+                        "zig codegen: bit array size expressions are not supported yet"
+                    ),
+                }
+            });
+
+            match kind {
+                SegmentKind::Int => {
+                    let bits = size_expr.unwrap_or_else(|| "8".to_string());
+                    compiled.conditions.push(format!(
+                        "P.baReadInt(&{matcher}, {bits}, {signed}, {little}, {slot})"
+                    ));
+                    match segment.value.as_ref() {
+                        Pattern::Variable { name, .. } => {
+                            int_slots.push((name.clone(), slot));
+                            compiled.bindings.push((
+                                name.clone(),
+                                format!("P.baIntSlot(&{matcher}, {slot})"),
+                                true,
+                            ));
+                        }
+                        Pattern::Discard { .. } => {}
+                        Pattern::Int { int_value, .. } => {
+                            compiled
+                                .conditions
+                                .push(format!("{matcher}.ints[{slot}] == {int_value}"));
+                        }
+                        other => panic!(
+                            "zig codegen: bit array int sub-pattern is not supported yet: {other:?}"
+                        ),
+                    }
+                    slot += 1;
+                }
+                SegmentKind::Float => {
+                    let bits = size_expr.unwrap_or_else(|| "64".to_string());
+                    compiled.conditions.push(format!(
+                        "P.baReadFloat(&{matcher}, {bits}, {little}, {slot})"
+                    ));
+                    match segment.value.as_ref() {
+                        Pattern::Variable { name, .. } => {
+                            compiled.bindings.push((
+                                name.clone(),
+                                format!("P.baFloatSlot(&{matcher}, {slot})"),
+                                true,
+                            ));
+                        }
+                        Pattern::Discard { .. } => {}
+                        other => panic!(
+                            "zig codegen: bit array float sub-pattern is not supported yet: {other:?}"
+                        ),
+                    }
+                    slot += 1;
+                }
+                SegmentKind::Utf8Codepoint => {
+                    compiled
+                        .conditions
+                        .push(format!("P.baReadUtf8Codepoint(&{matcher}, {slot})"));
+                    match segment.value.as_ref() {
+                        Pattern::Variable { name, .. } => {
+                            int_slots.push((name.clone(), slot));
+                            compiled.bindings.push((
+                                name.clone(),
+                                format!("P.baIntSlot(&{matcher}, {slot})"),
+                                true,
+                            ));
+                        }
+                        Pattern::Discard { .. } => {}
+                        other => panic!(
+                            "zig codegen: bit array codepoint sub-pattern is not supported yet: {other:?}"
+                        ),
+                    }
+                    slot += 1;
+                }
+                SegmentKind::Utf8 => match segment.value.as_ref() {
+                    Pattern::String { value, .. } => {
+                        compiled.conditions.push(format!(
+                            "P.baMatchLiteral(&{matcher}, \"{}\")",
+                            zig_string_contents(value)
+                        ));
+                    }
+                    other => panic!(
+                        "zig codegen: utf8 bit array patterns only support string literals: {other:?}"
+                    ),
+                },
+                SegmentKind::Bytes | SegmentKind::Bits => {
+                    match size_expr {
+                        Some(size) => {
+                            let byte_count = match kind {
+                                SegmentKind::Bits => format!("P.baBitsToBytes({size})"),
+                                _ => size,
+                            };
+                            compiled.conditions.push(format!(
+                                "P.baReadBytes(&{matcher}, {byte_count}, {slot})"
+                            ));
+                        }
+                        None => {
+                            if !is_last {
+                                panic!(
+                                    "zig codegen: unsized bytes segment must be last in a bit array pattern"
+                                )
+                            }
+                            compiled
+                                .conditions
+                                .push(format!("P.baReadRest(&{matcher}, {slot})"));
+                            ends_with_rest = true;
+                        }
+                    }
+                    match segment.value.as_ref() {
+                        Pattern::Variable { name, .. } => {
+                            compiled.bindings.push((
+                                name.clone(),
+                                format!("P.baSliceSlot(&{matcher}, {subject}, {slot})"),
+                                true,
+                            ));
+                        }
+                        Pattern::Discard { .. } => {}
+                        other => panic!(
+                            "zig codegen: bytes sub-pattern is not supported yet: {other:?}"
+                        ),
+                    }
+                    slot += 1;
+                }
+            }
+        }
+        if !ends_with_rest {
+            compiled
+                .conditions
+                .push(format!("P.baAtEnd(&{matcher})"));
         }
     }
 
@@ -1720,8 +2017,22 @@ fn clause_reuses_cons(clause: &TypedClause) -> bool {
     }
 }
 
+#[derive(Clone, Copy)]
+enum SegmentKind {
+    Int,
+    Float,
+    /// Size option counts bytes (`bytes-size(n)`).
+    Bytes,
+    /// Size option counts bits (`bits-size(n)`).
+    Bits,
+    Utf8,
+    Utf8Codepoint,
+}
+
 #[derive(Default)]
 struct CompiledPattern {
+    /// Statements emitted before the condition test (bit array matchers).
+    setup: Vec<String>,
     conditions: Vec<String>,
     /// (source name, zig expression, owned). Non-owned expressions borrow
     /// into the subject and are wrapped in P.dup by the emitter.
@@ -1953,8 +2264,17 @@ fn expression_uses(
         | TypedExpr::Float { .. }
         | TypedExpr::String { .. }
         | TypedExpr::ModuleSelect { .. }
-        | TypedExpr::Invalid { .. }
-        | TypedExpr::BitArray { .. } => {}
+        | TypedExpr::Invalid { .. } => {}
+        TypedExpr::BitArray { segments, .. } => {
+            for segment in segments {
+                expression_uses(name, &segment.value, branchy, summary);
+                for option in &segment.options {
+                    if let Some(size) = option.value() {
+                        expression_uses(name, size, branchy, summary);
+                    }
+                }
+            }
+        }
         TypedExpr::Block { statements, .. } => {
             for statement in statements {
                 statement_uses(name, statement, branchy, summary);
@@ -2211,7 +2531,11 @@ fn expression_variables(expression: &TypedExpr, names: &mut BTreeSet<EcoString>)
                 expression_variables(message, names);
             }
         }
-        TypedExpr::BitArray { .. } => {}
+        TypedExpr::BitArray { segments, .. } => {
+            for segment in segments {
+                expression_variables(&segment.value, names);
+            }
+        }
         TypedExpr::RecordUpdate {
             updated_record,
             constructor,
