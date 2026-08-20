@@ -265,9 +265,11 @@ fn run_zig_command(
     // generated module (including the shared prelude.zig) is importable:
     // zig refuses imports from outside the root source file's directory.
     let entrypoint = format!(
-        r#"const P = @import("prelude.zig");
+        r#"const std = @import("std");
+const P = @import("prelude.zig");
 const module = @import("{package}/{module}.zig");
-pub fn main() void {{
+pub fn main(init: std.process.Init.Minimal) void {{
+    P.process_args = init.args;
     P.drop(module.@"main"());
     P.leakCheckExit();
 }}
@@ -282,6 +284,10 @@ pub fn main() void {{
     let program = std::env::var("GLEAM_ZIG").unwrap_or_else(|_| "zig".into());
 
     let mut args = vec!["run".to_string(), path.to_string()];
+    if !arguments.is_empty() {
+        // Everything after -- goes to the program, not the zig compiler.
+        args.push("--".to_string());
+    }
     for argument in arguments {
         args.push(argument);
     }

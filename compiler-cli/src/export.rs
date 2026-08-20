@@ -298,9 +298,11 @@ pub fn zig_executable(paths: &ProjectPaths, output: Option<Utf8PathBuf>) -> Resu
     // The entrypoint lives at the target build root so every generated
     // module is importable.
     let entrypoint = format!(
-        r#"const P = @import("prelude.zig");
+        r#"const std = @import("std");
+const P = @import("prelude.zig");
 const module = @import("{package_name}/{package_name}.zig");
-pub fn main() void {{
+pub fn main(init: std.process.Init.Minimal) void {{
+    P.process_args = init.args;
     P.drop(module.@"main"());
     P.leakCheckExit();
 }}
