@@ -161,6 +161,9 @@ struct FunctionGenerator<'a, 'm> {
     tail_target: Option<(EcoString, Vec<String>)>,
     /// Set when a self tail call was rewritten to a loop continue.
     used_tail_loop: bool,
+    /// The binding holding the value flowing through the enclosing pipeline,
+    /// for bare `|> echo` steps.
+    pipe_value: Option<String>,
 }
 
 impl<'a, 'm> FunctionGenerator<'a, 'm> {
@@ -172,6 +175,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             label_counter: 0,
             tail_target: None,
             used_tail_loop: false,
+            pipe_value: None,
         }
     }
 
@@ -662,11 +666,21 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 ModuleValueConstructor::Fn { module, name, .. } => {
                     self.function_reference(module, name, function_arity(expression))
                 }
-                ModuleValueConstructor::Record { name, arity, .. } => {
+                ModuleValueConstructor::Record {
+                    name,
+                    arity,
+                    field_map,
+                    ..
+                } => {
                     if *arity == 0 {
-                        self.record_construction(module_name, name, &[])
+                        self.record_construction(&module_name.clone(), &name.clone(), &[], None)
                     } else {
-                        self.constructor_reference(module_name, name, *arity as usize)
+                        self.constructor_reference(
+                            &module_name.clone(),
+                            &name.clone(),
+                            *arity as usize,
+                            field_map.clone().as_ref(),
+                        )
                     }
                 }
                 ModuleValueConstructor::Constant { .. } => {
@@ -692,10 +706,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 location,
                 ..
             } => {
-                let inner = inner
-                    .as_ref()
-                    .expect("zig codegen: echo with no expression");
-                let value = self.expression(inner, indent);
+                let value = match inner {
+                    Some(inner) => self.expression(inner, indent),
+                    // `|> echo` with no argument: echo the pipe value.
+                    None => self
+                        .pipe_value
+                        .clone()
+                        .expect("zig codegen: echo with no expression outside a pipeline"),
+                };
                 let line = self.line_number(location);
                 format!("P.echo({value}, \"{}\", {line})", self.module.src_path)
             }
@@ -748,13 +766,19 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         indent: &str,
     ) {
         let first = self.expression(&first_value.value, indent);
-        let rendered = self.bind(&first_value.name);
-        out.push_str(&format!("{indent}const {rendered} = {first};\n"));
+        let mut previous = self.bind(&first_value.name);
+        out.push_str(&format!("{indent}const {previous} = {first};\n"));
         for (assignment, _kind) in assignments {
+            // A bare `|> echo` step has no expression: it echoes the value
+            // flowing through the pipe.
+            self.pipe_value = Some(previous.clone());
             let value = self.expression(&assignment.value, indent);
+            self.pipe_value = None;
             let rendered = self.bind(&assignment.name);
             out.push_str(&format!("{indent}const {rendered} = {value};\n"));
+            previous = rendered;
         }
+        self.pipe_value = Some(previous);
     }
 
     fn call(
@@ -775,8 +799,18 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     let target = self.module_function_target(module, name);
                     return format!("{target}({})", rendered_arguments.join(", "));
                 }
-                ValueConstructorVariant::Record { name, module, .. } => {
-                    return self.record_construction(module, name, &rendered_arguments);
+                ValueConstructorVariant::Record {
+                    name,
+                    module,
+                    field_map,
+                    ..
+                } => {
+                    return self.record_construction(
+                        &module.clone(),
+                        &name.clone(),
+                        &rendered_arguments,
+                        field_map.clone().as_ref(),
+                    );
                 }
                 _ => {}
             },
@@ -789,8 +823,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     let target = self.module_function_target(module, name);
                     return format!("{target}({})", rendered_arguments.join(", "));
                 }
-                ModuleValueConstructor::Record { name, .. } => {
-                    return self.record_construction(module_name, name, &rendered_arguments);
+                ModuleValueConstructor::Record {
+                    name, field_map, ..
+                } => {
+                    return self.record_construction(
+                        &module_name.clone(),
+                        &name.clone(),
+                        &rendered_arguments,
+                        field_map.clone().as_ref(),
+                    );
                 }
                 _ => {}
             },
@@ -824,6 +865,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         module: &EcoString,
         name: &EcoString,
         arguments: &[String],
+        field_map: Option<&crate::type_::FieldMap>,
     ) -> String {
         if *module == PRELUDE_MODULE_NAME {
             match name.as_str() {
@@ -835,12 +877,30 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
         }
         if arguments.is_empty() {
-            format!("P.makeRecord(\"{name}\", &[_]Value{{}})")
-        } else {
-            format!(
+            return format!("P.makeRecord(\"{name}\", &[_]Value{{}})");
+        }
+        let labels = field_map.map(|field_map| {
+            let mut labels: Vec<Option<&EcoString>> = vec![None; field_map.arity as usize];
+            for (label, index) in &field_map.fields {
+                labels[*index as usize] = Some(label);
+            }
+            labels
+                .iter()
+                .map(|label| match label {
+                    Some(label) => format!("\"{label}\""),
+                    None => "null".to_string(),
+                })
+                .join(", ")
+        });
+        match labels {
+            Some(labels) => format!(
+                "P.makeRecordL(\"{name}\", &[_]Value{{ {} }}, &[_]?[]const u8{{ {labels} }})",
+                arguments.join(", ")
+            ),
+            None => format!(
                 "P.makeRecord(\"{name}\", &[_]Value{{ {} }})",
                 arguments.join(", ")
-            )
+            ),
         }
     }
 
@@ -880,6 +940,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         module: &EcoString,
         name: &EcoString,
         arity: usize,
+        field_map: Option<&crate::type_::FieldMap>,
     ) -> String {
         let key = (module.clone(), EcoString::from(format!("constructor#{name}")), arity);
         if let Some(wrapper) = self.module.wrapper_cache.get(&key) {
@@ -891,9 +952,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             .join(", ");
         let forwarded = (0..arity)
             .map(|index| zig_identifier(&format!("p${index}")))
-            .join(", ");
+            .collect::<Vec<_>>();
+        let construction = self.record_construction(module, name, &forwarded, field_map);
         self.module.lifted.push(format!(
-            "fn {wrapper}(@\"env$\": []const Value, {parameters}) Value {{\n{INDENT}_ = @\"env$\";\n{INDENT}return P.makeRecord(\"{name}\", &[_]Value{{ {forwarded} }});\n}}\n"
+            "fn {wrapper}(@\"env$\": []const Value, {parameters}) Value {{\n{INDENT}_ = @\"env$\";\n{INDENT}return {construction};\n}}\n"
         ));
         let _ = self.module.wrapper_cache.insert(key, wrapper.clone());
         format!("P.makeClosure(@ptrCast(&{wrapper}), &[_]Value{{}})")
@@ -1301,13 +1363,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 record_constructor,
                 ..
             } => {
-                let module = record_constructor
+                let (module, field_map) = record_constructor
                     .as_ref()
                     .and_then(|constructor| match &constructor.variant {
-                        ValueConstructorVariant::Record { module, .. } => Some(module.clone()),
+                        ValueConstructorVariant::Record {
+                            module, field_map, ..
+                        } => Some((module.clone(), field_map.clone())),
                         _ => None,
                     })
-                    .unwrap_or_else(|| PRELUDE_MODULE_NAME.into());
+                    .unwrap_or_else(|| (PRELUDE_MODULE_NAME.into(), None));
                 let arguments = arguments
                     .as_ref()
                     .map(|arguments| {
@@ -1317,7 +1381,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
-                self.record_construction(&module, name, &arguments)
+                self.record_construction(&module, name, &arguments, field_map.as_ref())
             }
             Constant::Var {
                 name, constructor, ..
@@ -1366,12 +1430,18 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 name,
                 module,
                 arity,
+                field_map,
                 ..
             } => {
                 if *arity == 0 {
-                    self.record_construction(&module.clone(), &name.clone(), &[])
+                    self.record_construction(&module.clone(), &name.clone(), &[], None)
                 } else {
-                    self.constructor_reference(&module.clone(), &name.clone(), *arity as usize)
+                    self.constructor_reference(
+                        &module.clone(),
+                        &name.clone(),
+                        *arity as usize,
+                        field_map.clone().as_ref(),
+                    )
                 }
             }
             ValueConstructorVariant::ModuleFn {
@@ -1690,9 +1760,14 @@ fn zig_identifier(name: &str) -> String {
 }
 
 /// Gleam string literal contents are close enough to zig's escape syntax to
-/// pass through, except form feed which zig does not support.
+/// pass through, except form feed which zig does not support, and literal
+/// control characters (multi-line strings) which zig literals cannot hold.
 fn zig_string_contents(value: &str) -> String {
-    value.replace("\\f", "\\x0C")
+    value
+        .replace("\\f", "\\x0C")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 /// Byte length of a Gleam string literal's decoded value, for string prefix

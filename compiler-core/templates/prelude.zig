@@ -34,6 +34,9 @@ pub const Record = struct {
     /// well-typed pattern match.
     name: []const u8,
     fields: []const Value,
+    /// Field labels for inspection, null when a field is positional.
+    /// Empty when no field has a label.
+    labels: []const ?[]const u8 = &.{},
 };
 
 /// All function values share one shape: a type-erased pointer to a lifted
@@ -202,6 +205,16 @@ pub fn makeRecord(name: []const u8, fields: []const Value) Value {
     return Value{ .record = record };
 }
 
+pub fn makeRecordL(
+    name: []const u8,
+    fields: []const Value,
+    labels: []const ?[]const u8,
+) Value {
+    const record = alloc(Record);
+    record.* = Record{ .name = name, .fields = dupeValues(fields), .labels = labels };
+    return Value{ .record = record };
+}
+
 pub fn makeClosure(function: *const anyopaque, env: []const Value) Value {
     return Value{ .closure = Closure{ .function = function, .env = dupeValues(env) } };
 }
@@ -362,6 +375,11 @@ fn inspect(writer: anytype, value: Value) void {
                 writer.print("(", .{}) catch {};
                 for (value.record.fields, 0..) |field, index| {
                     if (index != 0) writer.print(", ", .{}) catch {};
+                    if (index < value.record.labels.len) {
+                        if (value.record.labels[index]) |label| {
+                            writer.print("{s}: ", .{label}) catch {};
+                        }
+                    }
                     inspect(writer, field);
                 }
                 writer.print(")", .{}) catch {};

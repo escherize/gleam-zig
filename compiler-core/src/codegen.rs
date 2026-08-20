@@ -343,9 +343,9 @@ impl<'a> Zig<'a> {
             .parent()
             .expect("zig output directory has no parent")
             .join("prelude.zig");
-        if !writer.exists(&path) {
-            writer.write(&path, crate::zig::PRELUDE)?;
-        }
+        // Always write: the prelude changes with the compiler, and a stale
+        // copy in the build directory produces confusing zig errors.
+        writer.write(&path, crate::zig::PRELUDE)?;
         Ok(())
     }
 }
