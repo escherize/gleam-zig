@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 The Gleam contributors
+
+# Verification for the zig compilation target: the tour + rosetta corpus
+# runs on both the zig and javascript targets, outputs are diffed, and
+# every zig binary leak-checks itself on exit. See the workspace repo's
+# examples/harness.py for the harness.
+name: zig-target
+
+on:
+  push:
+    branches: ["zig-target"]
+  pull_request:
+    branches: ["zig-target"]
+  workflow_dispatch:
+
+env:
+  ZIG_VERSION: 0.16.0
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # The workspace repo provides the harness and corpus and defines the
+      # expected sibling layout; this repo and the stdlib fork check out
+      # inside it. CROSS_REPO_TOKEN is only needed while the repos are
+      # private.
+      - name: Check out workspace
+        uses: actions/checkout@v4
+        with:
+          repository: escherize/gleam-zig-workspace
+          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
+
+      - name: Check out compiler fork
+        uses: actions/checkout@v4
+        with:
+          path: gleam
+
+      - name: Check out stdlib fork
+        uses: actions/checkout@v4
+        with:
+          repository: escherize/gleam-zig-stdlib
+          path: gleam-stdlib
+          token: ${{ secrets.CROSS_REPO_TOKEN || github.token }}
+
+      - name: Check out language tour (test input)
+        uses: actions/checkout@v4
+        with:
+          repository: gleam-lang/language-tour
+          path: tour
+
+      - name: Install zig ${{ env.ZIG_VERSION }}
+        run: |
+          mkdir -p toolchain
+          curl -sSfL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
+            | tar -xJ -C toolchain
+          toolchain/zig-x86_64-linux-${ZIG_VERSION}/zig version
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gleam
+
+      - name: Build the compiler
+        run: cargo build -p gleam
+        working-directory: gleam
+
+      - name: Run the corpus
+        env:
+          GLEAM_BIN: ${{ github.workspace }}/gleam/target/debug/gleam
+          GLEAM_ZIG: ${{ github.workspace }}/toolchain/zig-x86_64-linux-${{ env.ZIG_VERSION }}/zig
+        run: python3 examples/harness.py tour/src/content examples/rosetta
+
+  compiler-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run the compiler test suite
+        run: cargo test --workspace
