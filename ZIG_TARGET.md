@@ -5,6 +5,8 @@
 
 # The zig compilation target
 
+[![zig-target CI](https://github.com/escherize/gleam-zig/actions/workflows/zig-target.yml/badge.svg)](https://github.com/escherize/gleam-zig/actions/workflows/zig-target.yml)
+
 This fork adds `--target zig` beside `erlang` and `javascript`: Gleam
 compiles to Zig source, which compiles to a native binary. Scope is parity
 with the JavaScript target — no BEAM, no OTP, no schedulers; async is a
