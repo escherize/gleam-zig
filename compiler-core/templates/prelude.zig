@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 The Gleam contributors
+
 // Gleam Zig target runtime prelude.
 //
 // Values use a uniform tagged-union representation, mirroring the dynamic

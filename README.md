@@ -3,6 +3,14 @@
   SPDX-FileCopyrightText: 2020 The Gleam contributors
 -->
 
+> [!IMPORTANT]
+> **This is an unofficial fork of the Gleam compiler that adds a third
+> compilation target: native code via [Zig](https://ziglang.org).**
+> It is not affiliated with or endorsed by the Gleam core team.
+> See [ZIG_TARGET.md](ZIG_TARGET.md) for what works, what doesn't, and how
+> to try it. For the real Gleam, go to
+> [github.com/gleam-lang/gleam](https://github.com/gleam-lang/gleam).
+
 <p align="center">
   <img src="images/lucy.png" alt="Lucy, Gleam's mascot">
 </p>
