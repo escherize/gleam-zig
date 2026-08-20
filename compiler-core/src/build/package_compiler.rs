@@ -376,6 +376,7 @@ where
             TargetCodegenConfiguration::Erlang { app_file } => {
                 self.perform_erlang_codegen(modules, cached_module_names, app_file.as_ref())
             }
+            TargetCodegenConfiguration::Zig => todo!("Zig codegen is not yet implemented"),
         }
     }
 

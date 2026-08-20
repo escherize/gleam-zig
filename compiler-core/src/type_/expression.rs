@@ -169,6 +169,8 @@ impl FunctionDefinition {
         match target {
             Target::Erlang => self.has_erlang_external,
             Target::JavaScript => self.has_javascript_external,
+            // Zig externals are not supported yet.
+            Target::Zig => false,
         }
     }
 }
@@ -240,6 +242,8 @@ impl Implementations {
             || match target {
                 Target::Erlang => self.can_run_on_erlang,
                 Target::JavaScript => self.can_run_on_javascript,
+                // Without Zig externals, only pure Gleam runs on Zig.
+                Target::Zig => false,
             }
     }
 }
@@ -325,6 +329,7 @@ impl<'a, 'b> ExprTyper<'a, 'b> {
         let uses_externals = match environment.target {
             Target::Erlang => implementations.uses_erlang_externals,
             Target::JavaScript => implementations.uses_javascript_externals,
+            Target::Zig => false,
         };
 
         let purity = if is_trusted_pure_module(environment) {

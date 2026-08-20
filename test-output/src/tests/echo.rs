@@ -115,6 +115,7 @@ macro_rules! assert_echo {
             Target::Erlang => {
                 assert_echo!(&snapshot_name, Some($target), None, $project_name);
             }
+            Target::Zig => panic!("echo tests do not support the Zig target yet"),
         }
     };
 
@@ -130,6 +131,7 @@ fn snapshot_name(target: Option<Target>, runtime: Option<Runtime>, suffix: &str)
     let show_target = |target: Target| match target {
         Target::Erlang => "erlang",
         Target::JavaScript => "javascript",
+        Target::Zig => "zig",
     };
     let show_runtime = |runtime: Runtime| match runtime {
         Runtime::NodeJs => "nodejs",

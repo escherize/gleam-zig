@@ -143,6 +143,8 @@ impl Attributes {
         match target {
             Target::Erlang => self.external_erlang.is_some(),
             Target::JavaScript => self.external_javascript.is_some(),
+            // `@external(zig, ...)` is rejected by `parse_external_attribute`.
+            Target::Zig => false,
         }
     }
 
@@ -150,6 +152,8 @@ impl Attributes {
         match target {
             Target::Erlang => self.external_erlang = ext,
             Target::JavaScript => self.external_javascript = ext,
+            // `@external(zig, ...)` is rejected by `parse_external_attribute`.
+            Target::Zig => {}
         }
     }
 }

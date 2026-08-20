@@ -223,6 +223,9 @@ impl<'a, 'doc> Formatter<'a> {
             Some(Target::JavaScript) => {
                 docvec![arena, "@target(javascript)", LINE_DOCUMENT, document]
             }
+            Some(Target::Zig) => {
+                docvec![arena, "@target(zig)", LINE_DOCUMENT, document]
+            }
         };
         let document = document.group(arena);
         match comments {

@@ -45,6 +45,7 @@ pub fn command(options: CompilePackage) -> Result<()> {
                 .javascript_prelude
                 .ok_or_else(|| Error::JavaScriptPreludeRequired)?,
         },
+        Target::Zig => TargetCodegenConfiguration::Zig,
     };
 
     tracing::info!("Compiling package");

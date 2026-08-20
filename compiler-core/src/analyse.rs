@@ -1776,6 +1776,8 @@ fn target_function_implementation<'a>(
     match target {
         Target::Erlang => external_erlang,
         Target::JavaScript => external_javascript,
+        // Zig externals are not supported yet, so no function can have one.
+        Target::Zig => &None,
     }
 }
 

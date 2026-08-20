@@ -2438,6 +2438,10 @@ satisfying {required_version} but you are using v{gleam_version}.",
                         "You can not set a runtime for Erlang. Did you mean to target JavaScript?"
                             .into(),
                     ),
+                    Target::Zig => Some(
+                        "You can not set a runtime for Zig. Did you mean to target JavaScript?"
+                            .into(),
+                    ),
                 };
 
                 vec![Diagnostic {
@@ -4469,6 +4473,7 @@ and there is no implementation for the {} target.",
                 match current_target {
                     Target::Erlang => "Erlang",
                     Target::JavaScript => "JavaScript",
+                    Target::Zig => "Zig",
                 }
             );
             let hint = wrap("Did you mean to build for a different target?");
@@ -4497,6 +4502,7 @@ and there is no implementation for the {} target.",
             let target = match target {
                 Target::Erlang => "Erlang",
                 Target::JavaScript => "JavaScript",
+                Target::Zig => "Zig",
             };
             let text = wrap_format!(
                 "The `{name}` function is public but doesn't have an \

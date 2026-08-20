@@ -545,6 +545,7 @@ fn do_build_hex_tarball(paths: &ProjectPaths, config: &mut PackageConfig) -> Res
     let generated_files = match target {
         Target::Erlang => generated_erlang_files(paths, &built.root_package)?,
         Target::JavaScript => vec![],
+        Target::Zig => vec![],
     };
     let src_files = project_files(Utf8Path::new(""))?;
     let contents_tar_gz = contents_tarball(paths, &src_files, &generated_files)?;
