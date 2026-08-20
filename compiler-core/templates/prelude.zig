@@ -520,6 +520,58 @@ pub fn consReuse(token: ?*Cons, head: Value, tail: Value) Value {
     return cons(head, tail);
 }
 
+// ------------------------------------------------------------ threads
+
+/// Deep-copy a value for transfer across a thread boundary. Reference
+/// counts are non-atomic, so values are never shared between threads;
+/// the copy has fresh counts owned entirely by the receiving thread.
+/// Closure code pointers are shared (code is immutable); their captured
+/// environments are copied.
+pub fn deepCopy(value: Value) Value {
+    return switch (value) {
+        .int, .float, .bool, .nil => value,
+        .string => |s| copyString(s),
+        .list => {
+            // Copy the spine iteratively, then reverse into a fresh list.
+            var reversed: Value = emptyList();
+            var cell = value.list;
+            while (cell) |c| : (cell = c.tail) {
+                reversed = cons(deepCopy(c.head), reversed);
+            }
+            var result: Value = emptyList();
+            cell = reversed.list;
+            while (cell) |c| : (cell = c.tail) {
+                result = cons(dup(c.head), result);
+            }
+            drop(reversed);
+            return result;
+        },
+        .tuple => |t| {
+            const copied = allocValueSlice(t.len);
+            for (t, 0..) |element, index| copied[index] = deepCopy(element);
+            return Value{ .tuple = copied };
+        },
+        .record => |r| {
+            const record = rc_allocator().create(Record) catch @panic("out of memory");
+            var fields: []const Value = &.{};
+            if (r.fields.len != 0) {
+                const copied = allocValueSlice(r.fields.len);
+                for (r.fields, 0..) |field, index| copied[index] = deepCopy(field);
+                fields = copied;
+            }
+            record.* = Record{ .rc = 1, .name = r.name, .fields = fields, .labels = r.labels };
+            return Value{ .record = record };
+        },
+        .closure => |c| {
+            if (c.env.len == 0) return value;
+            const copied = allocValueSlice(c.env.len);
+            for (c.env, 0..) |element, index| copied[index] = deepCopy(element);
+            return Value{ .closure = Closure{ .function = c.function, .env = copied } };
+        },
+        .bit_array => |b| copyBitArray(b.bytes()),
+    };
+}
+
 // --------------------------------------------------------- bit arrays
 
 /// Wrap owned buffer bytes (an allocString payload) without copying.
