@@ -14,11 +14,12 @@ future FFI package's job, the way `gleam_javascript` wraps promises.
 
 ## Status
 
-- **Language**: everything the JavaScript target supports except bit
-  arrays (they compile, but constructing or matching one panics at
-  runtime). Custom types, pattern matching with guards and alternatives,
-  closures with captures, pipes, `use`, `let assert`, record updates,
-  module constants, self-tail-calls compiled to loops.
+- **Language**: everything the JavaScript target supports, including
+  byte-aligned bit arrays (construction, patterns, dependent sizes,
+  zero-copy rest slices). Custom types, pattern matching with guards and
+  alternatives, closures with captures, pipes, `use`, `let assert`,
+  record updates, module constants, self-tail-calls compiled to loops.
+  Non-byte-aligned bit array segments and utf16/32 segments panic.
 - **Memory**: Perceus-style reference counting, no GC. Naive counting
   plus conservative last-use moves plus FBIP cons-cell reuse
   (`list.map` mutates in place when the list is unshared). The generated
@@ -28,8 +29,13 @@ future FFI package's job, the way `gleam_javascript` wraps promises.
   rosetta-code programs produce output identical to the JavaScript
   target, leak-clean. 6,180 compiler tests pass.
 - **Stdlib**: a [forked gleam_stdlib](https://github.com/escherize/gleam-zig-stdlib)
-  implements the FFI for io, int, float, string, string_tree and dict.
-  Modules that are pure Gleam work as-is.
+  implements the FFI for io, int, float, string, string_tree, dict and
+  bit_array. Modules that are pure Gleam work as-is. File I/O comes from
+  a [forked simplifile](https://github.com/escherize/gleam-zig-simplifile).
+- **Native binaries**: `gleam export zig-executable` produces a
+  ReleaseFast standalone executable (~400KB for a small CLI). Debug
+  builds (`gleam run`) leak-check on exit; release builds swap in the
+  fast allocator and compile the check out.
 
 ## Trying it
 
@@ -72,7 +78,7 @@ to the generated module in the build directory. The convention:
 
 ## Known gaps
 
-- Bit arrays have no representation yet.
+- Non-byte-aligned bit array segments; utf16/utf32 segments.
 - Mutual tail recursion can overflow the stack (JavaScript-target
   parity; self-recursion is safe).
 - Dict is an association list; grapheme functions segment by codepoint;
