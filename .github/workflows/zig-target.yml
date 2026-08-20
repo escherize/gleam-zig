@@ -70,6 +70,8 @@ jobs:
         env:
           GLEAM_BIN: ${{ github.workspace }}/gleam/target/debug/gleam
           GLEAM_ZIG: ${{ github.workspace }}/toolchain/zig-x86_64-linux-${{ env.ZIG_VERSION }}/zig
+          # CI runners are slower than the development machine.
+          HARNESS_TIMEOUT: "60"
         run: python3 examples/harness.py tour/src/content examples/rosetta
 
   compiler-tests:
@@ -77,6 +79,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
+      # The escript tests shell out to erlang.
+      - name: Install Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
