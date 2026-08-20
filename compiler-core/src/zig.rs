@@ -164,6 +164,10 @@ struct FunctionGenerator<'a, 'm> {
     /// The binding holding the value flowing through the enclosing pipeline,
     /// for bare `|> echo` steps.
     pipe_value: Option<String>,
+    /// Bindings approved for the last-use move optimisation: their single
+    /// use transfers the reference (no dup) and no scope-exit drop is
+    /// emitted.
+    moved: HashSet<String>,
 }
 
 impl<'a, 'm> FunctionGenerator<'a, 'm> {
@@ -176,6 +180,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             tail_target: None,
             used_tail_loop: false,
             pipe_value: None,
+            moved: HashSet::new(),
         }
     }
 
@@ -329,10 +334,29 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     }
                 }
                 Statement::Assignment(assignment) => {
+                    // Last-use move: a simple binding whose only use is
+                    // straight-line in the remaining statements hands its
+                    // reference over at that use instead of dup + drop.
+                    let movable = matches!(
+                        (&assignment.pattern, &assignment.kind),
+                        (
+                            Pattern::Variable { .. },
+                            AssignmentKind::Let | AssignmentKind::Generated
+                        )
+                    ) && !is_last
+                        && matches!(&assignment.pattern, Pattern::Variable { name, .. }
+                            if summarise_uses(name, &statements[index + 1..])
+                                .single_straight_line_use());
                     let (bindings, text, final_value) =
                         self.assignment(assignment, is_last, indent);
                     out.push_str(&text);
-                    own.extend(bindings);
+                    if movable {
+                        for binding in &bindings {
+                            let _ = self.moved.insert(binding.clone());
+                        }
+                    } else {
+                        own.extend(bindings);
+                    }
                     if let Some(final_value) = final_value {
                         let drops: Vec<String> =
                             own.iter().chain(pending_drops).cloned().collect();
@@ -399,7 +423,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 } => {
                     let saved_scope = self.scope.clone();
                     let mut out = String::new();
-                    let steps = self.pipeline_steps(first_value, assignments, &mut out, indent);
+                    let steps = self.pipeline_steps(
+                        first_value,
+                        assignments,
+                        &mut out,
+                        indent,
+                        Some(finally),
+                    );
                     let drops: Vec<String> = steps.iter().chain(drops).cloned().collect();
                     out.push_str(&self.final_statement(finally, Tail::Return, indent, &drops));
                     self.scope = saved_scope;
@@ -567,7 +597,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let inner_indent = format!("{indent}{INDENT}");
                 let saved_scope = self.scope.clone();
                 let mut out = format!("{label}: {{\n");
-                let steps = self.pipeline_steps(first_value, assignments, &mut out, &inner_indent);
+                let steps = self.pipeline_steps(
+                    first_value,
+                    assignments,
+                    &mut out,
+                    &inner_indent,
+                    Some(finally),
+                );
                 let finally = self.expression(finally, &inner_indent);
                 let result = self.fresh_name("r");
                 out.push_str(&format!("{inner_indent}const {result} = {finally};\n"));
@@ -787,19 +823,56 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     }
 
     /// Render pipeline step bindings into `out`, returning the rendered
-    /// binding identifiers so the caller can drop them at pipeline exit.
+    /// binding identifiers the caller must drop at pipeline exit. Steps
+    /// whose value is consumed exactly once by the following step (the
+    /// overwhelmingly common case) are move-optimised and excluded.
     fn pipeline_steps(
         &mut self,
         first_value: &crate::ast::TypedPipelineAssignment,
         assignments: &[(crate::ast::TypedPipelineAssignment, crate::ast::PipelineAssignmentKind)],
         out: &mut String,
         indent: &str,
+        finally: Option<&TypedExpr>,
     ) -> Vec<String> {
+        // Later steps and the final expression, in evaluation order, for
+        // the per-step last-use scan.
+        let step_values: Vec<&TypedExpr> = assignments
+            .iter()
+            .map(|(assignment, _)| &*assignment.value)
+            .collect();
+        let step_names: Vec<&EcoString> =
+            assignments.iter().map(|(assignment, _)| &assignment.name).collect();
+
+        // Steps all share the source name "_pipe": the scan stops at the
+        // next rebind of the same name, so only the immediately following
+        // step (and the finale, when nothing rebinds in between) counts.
+        let step_is_moved = |name: &EcoString, from: usize| -> bool {
+            let mut summary = UseSummary::default();
+            for (value, later_name) in step_values[from..]
+                .iter()
+                .zip(&step_names[from..])
+            {
+                expression_uses(name, value, false, &mut summary);
+                if *later_name == name {
+                    return summary.single_straight_line_use();
+                }
+            }
+            if let Some(finally) = finally {
+                expression_uses(name, finally, false, &mut summary);
+            }
+            summary.single_straight_line_use()
+        };
+
         let first = self.expression(&first_value.value, indent);
         let mut previous = self.bind(&first_value.name);
-        let mut bindings = vec![previous.clone()];
+        let mut bindings = Vec::new();
+        if step_is_moved(&first_value.name, 0) {
+            let _ = self.moved.insert(previous.clone());
+        } else {
+            bindings.push(previous.clone());
+        }
         out.push_str(&format!("{indent}const {previous} = {first};\n"));
-        for (assignment, _kind) in assignments {
+        for (index, (assignment, _kind)) in assignments.iter().enumerate() {
             // A bare `|> echo` step has no expression: it echoes the value
             // flowing through the pipe.
             self.pipe_value = Some(previous.clone());
@@ -807,7 +880,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             self.pipe_value = None;
             let rendered = self.bind(&assignment.name);
             out.push_str(&format!("{indent}const {rendered} = {value};\n"));
-            bindings.push(rendered.clone());
+            if step_is_moved(&assignment.name, index + 1) {
+                let _ = self.moved.insert(rendered.clone());
+            } else {
+                bindings.push(rendered.clone());
+            }
             previous = rendered;
         }
         self.pipe_value = Some(previous);
@@ -1474,9 +1551,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| panic!("zig codegen: variable {name} not in scope"));
-                // Every use takes its own reference; the binding's reference
-                // is released at scope exit.
-                format!("P.dup({rendered})")
+                // A move-approved binding transfers its reference at this
+                // (single) use; otherwise the use takes its own reference
+                // and the binding's is released at scope exit.
+                if self.moved.remove(&rendered) {
+                    rendered
+                } else {
+                    format!("P.dup({rendered})")
+                }
             }
             ValueConstructorVariant::Record {
                 name,
@@ -1625,6 +1707,302 @@ fn expression_has_tail_self_call(expression: &TypedExpr, name: &EcoString) -> bo
         }
         TypedExpr::Pipeline { finally, .. } => expression_has_tail_self_call(finally, name),
         _ => false,
+    }
+}
+
+/// How a name is used in a region of code, for the conservative last-use
+/// move optimisation: a binding used exactly once, not under any branching
+/// construct (case clause, guard) or lambda, can transfer its reference at
+/// that use instead of dup-at-use + drop-at-scope-exit.
+#[derive(Default, Clone, Copy)]
+struct UseSummary {
+    count: usize,
+    under_branch_or_lambda: bool,
+}
+
+impl UseSummary {
+    fn single_straight_line_use(&self) -> bool {
+        self.count == 1 && !self.under_branch_or_lambda
+    }
+}
+
+/// Count uses of `name` in the statements following its binding. A rebind
+/// of the same name in the sequence ends the scan (later occurrences belong
+/// to the new binding). Rebinds in nested scopes are not tracked and only
+/// inflate the count, which fails safe (the optimisation is skipped).
+fn summarise_uses(name: &EcoString, statements: &[TypedStatement]) -> UseSummary {
+    let mut summary = UseSummary::default();
+    for statement in statements {
+        match statement {
+            Statement::Expression(expression) => {
+                expression_uses(name, expression, false, &mut summary)
+            }
+            Statement::Assignment(assignment) => {
+                expression_uses(name, &assignment.value, false, &mut summary);
+                if pattern_binds(name, &assignment.pattern) {
+                    break;
+                }
+            }
+            Statement::Use(use_) => expression_uses(name, &use_.call, false, &mut summary),
+            Statement::Assert(assert) => {
+                expression_uses(name, &assert.value, false, &mut summary);
+                if let Some(message) = &assert.message {
+                    // Assert messages are evaluated only on the failure path.
+                    expression_uses(name, message, true, &mut summary);
+                }
+            }
+        }
+    }
+    summary
+}
+
+/// Uses inside nested statement sequences (blocks, lambda bodies). Rebinds
+/// are not tracked here; inner shadowing only inflates counts (fails safe).
+fn statement_uses(
+    name: &EcoString,
+    statement: &TypedStatement,
+    branchy: bool,
+    summary: &mut UseSummary,
+) {
+    match statement {
+        Statement::Expression(expression) => expression_uses(name, expression, branchy, summary),
+        Statement::Assignment(assignment) => {
+            expression_uses(name, &assignment.value, branchy, summary)
+        }
+        Statement::Use(use_) => expression_uses(name, &use_.call, branchy, summary),
+        Statement::Assert(assert) => {
+            expression_uses(name, &assert.value, branchy, summary);
+            if let Some(message) = &assert.message {
+                expression_uses(name, message, true, summary);
+            }
+        }
+    }
+}
+
+fn pattern_binds(name: &EcoString, pattern: &TypedPattern) -> bool {
+    let mut compiled = CompiledPattern::default();
+    // Reuse the binding collector: cheap and complete. Conditions produced
+    // here are discarded.
+    collect_pattern_names(pattern, &mut compiled);
+    compiled.bindings.iter().any(|(bound, _, _)| bound == name)
+}
+
+fn collect_pattern_names(pattern: &TypedPattern, compiled: &mut CompiledPattern) {
+    match pattern {
+        Pattern::Variable { name, .. } => {
+            compiled.bindings.push((name.clone(), String::new(), false));
+        }
+        Pattern::Assign { name, pattern, .. } => {
+            compiled.bindings.push((name.clone(), String::new(), false));
+            collect_pattern_names(pattern, compiled);
+        }
+        Pattern::StringPrefix {
+            left_side_assignment,
+            right_side_assignment,
+            ..
+        } => {
+            if let Some((name, _)) = left_side_assignment {
+                compiled.bindings.push((name.clone(), String::new(), false));
+            }
+            if let AssignName::Variable(name) = right_side_assignment {
+                compiled.bindings.push((name.clone(), String::new(), false));
+            }
+        }
+        Pattern::Tuple { elements, .. } => {
+            for element in elements {
+                collect_pattern_names(element, compiled);
+            }
+        }
+        Pattern::List { elements, tail, .. } => {
+            for element in elements {
+                collect_pattern_names(element, compiled);
+            }
+            if let Some(tail) = tail {
+                collect_pattern_names(&tail.pattern, compiled);
+            }
+        }
+        Pattern::Constructor { arguments, .. } => {
+            for argument in arguments {
+                collect_pattern_names(&argument.value, compiled);
+            }
+        }
+        Pattern::BitArray { segments, .. } => {
+            for segment in segments {
+                collect_pattern_names(&segment.value, compiled);
+            }
+        }
+        Pattern::Int { .. }
+        | Pattern::Float { .. }
+        | Pattern::String { .. }
+        | Pattern::Discard { .. }
+        | Pattern::BitArraySize { .. }
+        | Pattern::Invalid { .. } => {}
+    }
+}
+
+fn expression_uses(
+    name: &EcoString,
+    expression: &TypedExpr,
+    branchy: bool,
+    summary: &mut UseSummary,
+) {
+    match expression {
+        TypedExpr::Var {
+            constructor,
+            name: used,
+            ..
+        } => {
+            if used == name
+                && matches!(
+                    constructor.variant,
+                    ValueConstructorVariant::LocalVariable { .. }
+                )
+            {
+                summary.count += 1;
+                if branchy {
+                    summary.under_branch_or_lambda = true;
+                }
+            }
+        }
+        TypedExpr::Int { .. }
+        | TypedExpr::Float { .. }
+        | TypedExpr::String { .. }
+        | TypedExpr::ModuleSelect { .. }
+        | TypedExpr::Invalid { .. }
+        | TypedExpr::BitArray { .. } => {}
+        TypedExpr::Block { statements, .. } => {
+            for statement in statements {
+                statement_uses(name, statement, branchy, summary);
+            }
+        }
+        TypedExpr::Pipeline {
+            first_value,
+            assignments,
+            finally,
+            ..
+        } => {
+            expression_uses(name, &first_value.value, branchy, summary);
+            for (assignment, _) in assignments {
+                expression_uses(name, &assignment.value, branchy, summary);
+            }
+            expression_uses(name, finally, branchy, summary);
+        }
+        // Anything inside a lambda runs zero or many times; never a
+        // straight-line use.
+        TypedExpr::Fn { body, .. } => {
+            for statement in body {
+                statement_uses(name, statement, true, summary);
+            }
+        }
+        TypedExpr::List { elements, tail, .. } => {
+            for element in elements {
+                expression_uses(name, element, branchy, summary);
+            }
+            if let Some(tail) = tail {
+                expression_uses(name, tail, branchy, summary);
+            }
+        }
+        TypedExpr::Call { fun, arguments, .. } => {
+            expression_uses(name, fun, branchy, summary);
+            for argument in arguments {
+                expression_uses(name, &argument.value, branchy, summary);
+            }
+        }
+        TypedExpr::BinOp {
+            operator,
+            left,
+            right,
+            ..
+        } => {
+            expression_uses(name, left, branchy, summary);
+            // The right operand of a short-circuit operator may not run.
+            let conditional = matches!(operator, BinOp::And | BinOp::Or);
+            expression_uses(name, right, branchy || conditional, summary);
+        }
+        TypedExpr::Case {
+            subjects, clauses, ..
+        } => {
+            for subject in subjects {
+                expression_uses(name, subject, branchy, summary);
+            }
+            for clause in clauses {
+                // Clause bodies and guards are conditional.
+                expression_uses(name, &clause.then, true, summary);
+                if let Some(guard) = &clause.guard {
+                    guard_uses(name, guard, summary);
+                }
+                // Clause-pattern rebinds are not tracked; their inner
+                // uses inflate the count, which fails safe.
+            }
+        }
+        TypedExpr::RecordAccess { record, .. } => {
+            expression_uses(name, record, branchy, summary)
+        }
+        TypedExpr::PositionalAccess { record, .. } => {
+            expression_uses(name, record, branchy, summary)
+        }
+        TypedExpr::Tuple { elements, .. } => {
+            for element in elements {
+                expression_uses(name, element, branchy, summary);
+            }
+        }
+        TypedExpr::TupleIndex { tuple, .. } => expression_uses(name, tuple, branchy, summary),
+        TypedExpr::Todo { message, .. } | TypedExpr::Panic { message, .. } => {
+            if let Some(message) = message {
+                expression_uses(name, message, true, summary);
+            }
+        }
+        TypedExpr::Echo {
+            expression: inner,
+            message,
+            ..
+        } => {
+            if let Some(inner) = inner {
+                expression_uses(name, inner, branchy, summary);
+            }
+            if let Some(message) = message {
+                expression_uses(name, message, branchy, summary);
+            }
+        }
+        TypedExpr::RecordUpdate {
+            updated_record,
+            constructor,
+            arguments,
+            ..
+        } => {
+            expression_uses(name, updated_record, branchy, summary);
+            expression_uses(name, constructor, branchy, summary);
+            for argument in arguments {
+                expression_uses(name, &argument.value, branchy, summary);
+            }
+        }
+        TypedExpr::NegateBool { value, .. } | TypedExpr::NegateInt { value, .. } => {
+            expression_uses(name, value, branchy, summary);
+        }
+    }
+}
+
+fn guard_uses(name: &EcoString, guard: &TypedClauseGuard, summary: &mut UseSummary) {
+    match guard {
+        crate::ast::ClauseGuard::Var { name: used, .. } => {
+            if used == name {
+                summary.count += 1;
+                summary.under_branch_or_lambda = true;
+            }
+        }
+        crate::ast::ClauseGuard::Block { value, .. } => guard_uses(name, value, summary),
+        crate::ast::ClauseGuard::Not { expression, .. } => guard_uses(name, expression, summary),
+        crate::ast::ClauseGuard::BinaryOperator { left, right, .. } => {
+            guard_uses(name, left, summary);
+            guard_uses(name, right, summary);
+        }
+        crate::ast::ClauseGuard::TupleIndex { tuple, .. } => guard_uses(name, tuple, summary),
+        crate::ast::ClauseGuard::FieldAccess { container, .. } => {
+            guard_uses(name, container, summary)
+        }
+        crate::ast::ClauseGuard::ModuleSelect { .. }
+        | crate::ast::ClauseGuard::Constant(_)
+        | crate::ast::ClauseGuard::Invalid { .. } => {}
     }
 }
 
