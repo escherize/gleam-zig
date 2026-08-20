@@ -338,14 +338,23 @@ impl<'a> Zig<'a> {
     }
 
     fn write_prelude(&self, writer: &impl FileSystemWriter) -> Result<()> {
-        let path = self
+        let target_directory = self
             .output_directory
             .parent()
-            .expect("zig output directory has no parent")
-            .join("prelude.zig");
-        // Always write: the prelude changes with the compiler, and a stale
-        // copy in the build directory produces confusing zig errors.
-        writer.write(&path, crate::zig::PRELUDE)?;
+            .expect("zig output directory has no parent");
+        let path = target_directory.join("prelude.zig");
+        // Rewrite when the prelude changes with the compiler (a stale copy
+        // produces confusing zig errors), but not on every build: an
+        // unnecessary mtime bump invalidates zig's whole build cache. The
+        // stamp file name carries a content hash.
+        let hash: u32 = crate::zig::PRELUDE
+            .bytes()
+            .fold(0u32, |hash, byte| hash.wrapping_mul(31).wrapping_add(byte as u32));
+        let stamp = target_directory.join(format!(".prelude-{hash:08x}"));
+        if !writer.exists(&stamp) || !writer.exists(&path) {
+            writer.write(&path, crate::zig::PRELUDE)?;
+            writer.write(&stamp, "")?;
+        }
         Ok(())
     }
 }
