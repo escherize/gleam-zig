@@ -871,6 +871,7 @@ pub struct Function<T, Expr> {
     pub documentation: Option<(u32, EcoString)>,
     pub external_erlang: Option<(EcoString, EcoString, SrcSpan)>,
     pub external_javascript: Option<(EcoString, EcoString, SrcSpan)>,
+    pub external_zig: Option<(EcoString, EcoString, SrcSpan)>,
     pub implementations: Implementations,
     pub purity: Purity,
 }
@@ -1132,6 +1133,7 @@ pub struct CustomType<T> {
     pub typed_parameters: Vec<T>,
     pub external_erlang: Option<(EcoString, EcoString, SrcSpan)>,
     pub external_javascript: Option<(EcoString, EcoString, SrcSpan)>,
+    pub external_zig: Option<(EcoString, EcoString, SrcSpan)>,
 }
 
 impl<T> CustomType<T> {

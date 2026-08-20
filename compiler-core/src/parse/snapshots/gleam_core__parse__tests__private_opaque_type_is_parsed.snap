@@ -1,5 +1,6 @@
 ---
 source: compiler-core/src/parse/tests.rs
+assertion_line: 2054
 expression: "opaque type Wibble { Wobble }"
 ---
 Parsed {
@@ -45,6 +46,7 @@ Parsed {
                         typed_parameters: [],
                         external_erlang: None,
                         external_javascript: None,
+                        external_zig: None,
                     },
                 ),
                 target: None,

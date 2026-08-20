@@ -1,5 +1,6 @@
 ---
 source: compiler-core/src/parse/tests.rs
+assertion_line: 925
 expression: "\n@external(erlang, \"gleam_stdlib\", \"dict\")\n@external(javascript, \"./gleam_stdlib.d.ts\", \"Dict\")\npub type Dict(key, value)\n"
 ---
 Parsed {
@@ -63,6 +64,7 @@ Parsed {
                                 },
                             ),
                         ),
+                        external_zig: None,
                     },
                 ),
                 target: None,

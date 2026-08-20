@@ -262,9 +262,13 @@ impl ImplementationsInterface {
             gleam,
             uses_erlang_externals,
             uses_javascript_externals,
+            // The package interface format predates the zig target and does
+            // not expose it.
+            uses_zig_externals: _,
 
             can_run_on_erlang,
             can_run_on_javascript,
+            can_run_on_zig: _,
         } = implementations;
 
         ImplementationsInterface {

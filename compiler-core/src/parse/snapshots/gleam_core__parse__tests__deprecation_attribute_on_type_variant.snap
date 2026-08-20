@@ -1,5 +1,6 @@
 ---
 source: compiler-core/src/parse/tests.rs
+assertion_line: 1915
 expression: "\ntype Wibble {\n    @deprecated(\"1\")\n    Wibble1\n    Wibble2\n}\n"
 ---
 Parsed {
@@ -61,6 +62,7 @@ Parsed {
                         typed_parameters: [],
                         external_erlang: None,
                         external_javascript: None,
+                        external_zig: None,
                     },
                 ),
                 target: None,

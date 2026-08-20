@@ -712,6 +712,7 @@ const_str!(
     "@external(javascript, \"",
     23
 );
+const_str!(EXTERNAL_ZIG_QUOTE_DOCUMENT, "@external(zig, \"", 16);
 const_str!(QUOTE_COMMA_SPACE_QUOTE_DOCUMENT, "\", \"", 4);
 const_str!(INTERNAL_ATTRIBUTE_DOCUMENT, "@internal", 9);
 const_str!(INTERNAL_ATTRIBUTE_SPACE_DOCUMENT, "@internal ", 9);

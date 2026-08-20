@@ -745,6 +745,7 @@ pub enum ValueConstructorVariant {
         implementations: Implementations,
         external_erlang: Option<(EcoString, EcoString)>,
         external_javascript: Option<(EcoString, EcoString)>,
+        external_zig: Option<(EcoString, EcoString)>,
         purity: Purity,
     },
 
@@ -804,6 +805,7 @@ impl ValueConstructorVariant {
                 module: module_name.clone(),
                 external_erlang: None,
                 external_javascript: None,
+                external_zig: None,
                 documentation: None,
                 location: *location,
                 field_map: None,
@@ -818,6 +820,7 @@ impl ValueConstructorVariant {
                 field_map,
                 external_erlang,
                 external_javascript,
+                external_zig,
                 purity,
                 ..
             } => ModuleValueConstructor::Fn {
@@ -826,6 +829,7 @@ impl ValueConstructorVariant {
                 documentation: documentation.clone(),
                 external_erlang: external_erlang.clone(),
                 external_javascript: external_javascript.clone(),
+                external_zig: external_zig.clone(),
                 location: *location,
                 field_map: field_map.clone(),
                 purity: *purity,
@@ -879,8 +883,10 @@ impl ValueConstructorVariant {
                 gleam: true,
                 can_run_on_erlang: true,
                 can_run_on_javascript: true,
+                can_run_on_zig: true,
                 uses_javascript_externals: false,
                 uses_erlang_externals: false,
+                uses_zig_externals: false,
             },
 
             ValueConstructorVariant::ModuleFn {
@@ -944,6 +950,7 @@ pub enum ModuleValueConstructor {
         ///
         external_erlang: Option<(EcoString, EcoString)>,
         external_javascript: Option<(EcoString, EcoString)>,
+        external_zig: Option<(EcoString, EcoString)>,
         field_map: Option<FieldMap>,
         documentation: Option<EcoString>,
         purity: Purity,

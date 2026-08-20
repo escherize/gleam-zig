@@ -47,6 +47,7 @@ pub fn module(
         lifted: Vec::new(),
         lambda_counter: 0,
         wrapper_cache: HashMap::new(),
+        ffi_imports: std::collections::BTreeMap::new(),
     };
 
     let mut functions = String::new();
@@ -76,6 +77,9 @@ pub fn module(
             module_ref(module_name),
         ));
     }
+    for (path, identifier) in &shared.ffi_imports {
+        out.push_str(&format!("const {identifier} = @import(\"{path}\");\n"));
+    }
     out.push('\n');
     out.push_str(&functions);
     for lifted in &shared.lifted {
@@ -102,6 +106,19 @@ struct ModuleContext<'a> {
     /// (module, name, arity) -> lifted wrapper identifier for functions and
     /// constructors used as values.
     wrapper_cache: HashMap<(EcoString, EcoString, usize), String>,
+    /// FFI import path -> zig import const identifier, for @external(zig).
+    ffi_imports: std::collections::BTreeMap<EcoString, String>,
+}
+
+impl ModuleContext<'_> {
+    fn ffi_import(&mut self, path: &EcoString) -> String {
+        if let Some(identifier) = self.ffi_imports.get(path) {
+            return identifier.clone();
+        }
+        let identifier = zig_identifier(&format!("F${}", self.ffi_imports.len()));
+        let _ = self.ffi_imports.insert(path.clone(), identifier.clone());
+        identifier
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -145,6 +162,37 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             .as_ref()
             .map(|(_, name)| name.clone())
             .expect("zig codegen: anonymous top level function");
+
+        // An external zig implementation wins over a Gleam body, mirroring
+        // the other targets: emit a forwarding function to the FFI module.
+        if let Some((ffi_path, ffi_name, _)) = &function.external_zig {
+            let import = self.module.ffi_import(ffi_path);
+            let visibility = if function.publicity.is_private() {
+                ""
+            } else {
+                "pub "
+            };
+            let parameters = (0..function.arguments.len())
+                .map(|index| format!("a{index}: Value"))
+                .join(", ");
+            let forwarded = (0..function.arguments.len())
+                .map(|index| format!("a{index}"))
+                .join(", ");
+            return format!(
+                "{visibility}fn {}({parameters}) Value {{\n{INDENT}return {import}.{}({forwarded});\n}}\n",
+                zig_identifier(&name),
+                zig_identifier(ffi_name),
+            );
+        }
+
+        // The function cannot run on this target (it exists for other
+        // targets' externals). The type checker stops any use of it from
+        // zig code, so emit nothing.
+        if function.body.is_empty()
+            || !function.implementations.supports(crate::build::Target::Zig)
+        {
+            return String::new();
+        }
 
         let parameter_names: Vec<EcoString> = function
             .arguments

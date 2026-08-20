@@ -1,5 +1,6 @@
 ---
 source: compiler-core/src/parse/tests.rs
+assertion_line: 2220
 expression: "﻿\nconst local_const = other.Record(..other.base, field: value)\n"
 ---
 Parsed {
@@ -94,8 +95,10 @@ Parsed {
                             gleam: true,
                             can_run_on_erlang: true,
                             can_run_on_javascript: true,
+                            can_run_on_zig: true,
                             uses_erlang_externals: false,
                             uses_javascript_externals: false,
+                            uses_zig_externals: false,
                         },
                     },
                 ),

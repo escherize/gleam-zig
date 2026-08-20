@@ -1,5 +1,6 @@
 ---
 source: compiler-core/src/parse/tests.rs
+assertion_line: 1485
 expression: "\ntype Wibble {\n    Wibble(wibble: String)\n}\n\nfn wobble() {\n  Wibble(\"a\").\n}\n"
 ---
 Parsed {
@@ -80,6 +81,7 @@ Parsed {
                         typed_parameters: [],
                         external_erlang: None,
                         external_javascript: None,
+                        external_zig: None,
                     },
                 ),
                 target: None,
@@ -158,12 +160,15 @@ Parsed {
                         documentation: None,
                         external_erlang: None,
                         external_javascript: None,
+                        external_zig: None,
                         implementations: Implementations {
                             gleam: true,
                             can_run_on_erlang: true,
                             can_run_on_javascript: true,
+                            can_run_on_zig: true,
                             uses_erlang_externals: false,
                             uses_javascript_externals: false,
+                            uses_zig_externals: false,
                         },
                         purity: Pure,
                     },

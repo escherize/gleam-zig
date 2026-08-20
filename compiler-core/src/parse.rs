@@ -131,20 +131,22 @@ struct Attributes {
     deprecated: Deprecation,
     external_erlang: Option<(EcoString, EcoString, SrcSpan)>,
     external_javascript: Option<(EcoString, EcoString, SrcSpan)>,
+    external_zig: Option<(EcoString, EcoString, SrcSpan)>,
     internal: InternalAttribute,
 }
 
 impl Attributes {
     fn has_function_only(&self) -> bool {
-        self.external_erlang.is_some() || self.external_javascript.is_some()
+        self.external_erlang.is_some()
+            || self.external_javascript.is_some()
+            || self.external_zig.is_some()
     }
 
     fn has_external_for(&self, target: Target) -> bool {
         match target {
             Target::Erlang => self.external_erlang.is_some(),
             Target::JavaScript => self.external_javascript.is_some(),
-            // `@external(zig, ...)` is rejected by `parse_external_attribute`.
-            Target::Zig => false,
+            Target::Zig => self.external_zig.is_some(),
         }
     }
 
@@ -152,8 +154,7 @@ impl Attributes {
         match target {
             Target::Erlang => self.external_erlang = ext,
             Target::JavaScript => self.external_javascript = ext,
-            // `@external(zig, ...)` is rejected by `parse_external_attribute`.
-            Target::Zig => {}
+            Target::Zig => self.external_zig = ext,
         }
     }
 }
@@ -2329,12 +2330,15 @@ where
             deprecation: std::mem::take(&mut attributes.deprecated),
             external_erlang: attributes.external_erlang.take(),
             external_javascript: attributes.external_javascript.take(),
+            external_zig: attributes.external_zig.take(),
             implementations: Implementations {
                 gleam: true,
                 can_run_on_erlang: true,
                 can_run_on_javascript: true,
+                can_run_on_zig: true,
                 uses_erlang_externals: false,
                 uses_javascript_externals: false,
+                uses_zig_externals: false,
             },
             purity: Purity::Pure,
         })))
@@ -2686,6 +2690,7 @@ where
             deprecation: std::mem::take(&mut attributes.deprecated),
             external_erlang: std::mem::take(&mut attributes.external_erlang),
             external_javascript: std::mem::take(&mut attributes.external_javascript),
+            external_zig: std::mem::take(&mut attributes.external_zig),
         })))
     }
 
@@ -2698,6 +2703,7 @@ where
             // Expecting all but the deprecated atterbutes to be default
             if attributes.external_erlang.is_some()
                 || attributes.external_javascript.is_some()
+                || attributes.external_zig.is_some()
                 || attributes.target.is_some()
                 || attributes.internal != InternalAttribute::Missing
             {
@@ -3361,8 +3367,10 @@ where
                         gleam: true,
                         can_run_on_erlang: true,
                         can_run_on_javascript: true,
+                        can_run_on_zig: true,
                         uses_erlang_externals: false,
                         uses_javascript_externals: false,
+                        uses_zig_externals: false,
                     },
                 })))
             }
@@ -4809,6 +4817,7 @@ functions are declared separately from types.";
         let target = match target.as_str() {
             "erlang" => Target::Erlang,
             "javascript" => Target::JavaScript,
+            "zig" => Target::Zig,
             _ => return parse_error(ParseErrorType::UnknownTarget, SrcSpan::new(start, end)),
         };
 

@@ -1,5 +1,6 @@
 ---
 source: compiler-core/src/parse/tests.rs
+assertion_line: 2162
 expression: "\ntype Person {\n  Person(name: String, age: Int)\n}\n\nconst alice = Person(\"Alice\", 30)\nconst bob = Person(..alice, name: \"Bob\")\n"
 ---
 Parsed {
@@ -114,6 +115,7 @@ Parsed {
                         typed_parameters: [],
                         external_erlang: None,
                         external_javascript: None,
+                        external_zig: None,
                     },
                 ),
                 target: None,
@@ -186,8 +188,10 @@ Parsed {
                             gleam: true,
                             can_run_on_erlang: true,
                             can_run_on_javascript: true,
+                            can_run_on_zig: true,
                             uses_erlang_externals: false,
                             uses_javascript_externals: false,
+                            uses_zig_externals: false,
                         },
                     },
                 ),
@@ -260,8 +264,10 @@ Parsed {
                             gleam: true,
                             can_run_on_erlang: true,
                             can_run_on_javascript: true,
+                            can_run_on_zig: true,
                             uses_erlang_externals: false,
                             uses_javascript_externals: false,
+                            uses_zig_externals: false,
                         },
                     },
                 ),

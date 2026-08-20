@@ -1057,6 +1057,7 @@ impl<'a, 'doc> Formatter<'a> {
             documentation: _,
             external_erlang,
             external_javascript,
+            external_zig,
             implementations: _,
             purity: _,
         } = function;
@@ -1066,6 +1067,7 @@ impl<'a, 'doc> Formatter<'a> {
             .set_internal(*publicity)
             .set_external_erlang(external_erlang)
             .set_external_javascript(external_javascript)
+            .set_external_zig(external_zig)
             .to_doc(arena);
 
         // Fn name and args
@@ -2317,6 +2319,7 @@ impl<'a, 'doc> Formatter<'a> {
             typed_parameters: _,
             external_erlang,
             external_javascript,
+            external_zig,
         } = type_;
 
         let _ = self.pop_empty_lines(location.end);
@@ -2326,6 +2329,7 @@ impl<'a, 'doc> Formatter<'a> {
             .set_internal(*publicity)
             .set_external_erlang(external_erlang)
             .set_external_javascript(external_javascript)
+            .set_external_zig(external_zig)
             .to_doc(arena);
 
         let doc = attributes
@@ -4310,6 +4314,7 @@ fn constant_call_arg_formatting(
 struct AttributesPrinter<'a> {
     external_erlang: &'a Option<(EcoString, EcoString, SrcSpan)>,
     external_javascript: &'a Option<(EcoString, EcoString, SrcSpan)>,
+    external_zig: &'a Option<(EcoString, EcoString, SrcSpan)>,
     deprecation: &'a Deprecation,
     internal: bool,
 }
@@ -4319,6 +4324,7 @@ impl<'a> AttributesPrinter<'a> {
         Self {
             external_erlang: &None,
             external_javascript: &None,
+            external_zig: &None,
             deprecation: &Deprecation::NotDeprecated,
             internal: false,
         }
@@ -4337,6 +4343,14 @@ impl<'a> AttributesPrinter<'a> {
         external: &'a Option<(EcoString, EcoString, SrcSpan)>,
     ) -> Self {
         self.external_javascript = external;
+        self
+    }
+
+    pub fn set_external_zig(
+        mut self,
+        external: &'a Option<(EcoString, EcoString, SrcSpan)>,
+    ) -> Self {
+        self.external_zig = external;
         self
     }
 
@@ -4381,6 +4395,17 @@ impl<'a, 'doc> AttributesPrinter<'a> {
             attributes.push(docvec![
                 arena,
                 EXTERNAL_JAVASCRIPT_QUOTE_DOCUMENT,
+                module,
+                QUOTE_COMMA_SPACE_QUOTE_DOCUMENT,
+                function,
+                QUOTE_CLOSE_PAREN_DOCUMENT
+            ])
+        };
+
+        if let Some((module, function, _)) = self.external_zig {
+            attributes.push(docvec![
+                arena,
+                EXTERNAL_ZIG_QUOTE_DOCUMENT,
                 module,
                 QUOTE_COMMA_SPACE_QUOTE_DOCUMENT,
                 function,
