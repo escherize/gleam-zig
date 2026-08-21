@@ -117,6 +117,54 @@ pub fn module(
         let _ = native_signatures.insert(name.clone(), (parameter_kinds, return_kind));
     }
 
+    // Functions whose parameters are only ever field-read get a borrowed
+    // ABI: same-module callers pass references without dup, the callee
+    // never drops. Scalar parameters carry no references and are always
+    // borrowable; boxed parameters qualify when every occurrence is the
+    // container of a field access. The public name keeps the owned
+    // convention through a wrapper.
+    let mut borrowed_signatures: HashMap<EcoString, Vec<bool>> = HashMap::new();
+    for function in &module.definitions.functions {
+        let Some((_, name)) = &function.name else {
+            continue;
+        };
+        if function.external_zig.is_some()
+            || function.body.is_empty()
+            || !function.implementations.supports(crate::build::Target::Zig)
+            || native_signatures.contains_key(name)
+            || function.arguments.is_empty()
+            // Tail-call loops reassign their parameters with owned
+            // values; mixing conventions there is not worth it.
+            || body_has_tail_self_call(&function.body, name)
+        {
+            continue;
+        }
+        let flags: Vec<bool> = function
+            .arguments
+            .iter()
+            .map(|argument| match argument.names.get_variable_name() {
+                // A discarded parameter is never used; the caller simply
+                // keeps its reference.
+                None => true,
+                Some(parameter_name) => {
+                    scalar_kind(&argument.type_).is_some()
+                        || param_uses_are_borrow_only(parameter_name, &function.body)
+                }
+            })
+            .collect();
+        // A second ABI only pays when a boxed parameter is borrowed.
+        let worthwhile = function
+            .arguments
+            .iter()
+            .zip(&flags)
+            .any(|(argument, borrowed)| {
+                *borrowed && scalar_kind(&argument.type_).is_none()
+            });
+        if worthwhile {
+            let _ = borrowed_signatures.insert(name.clone(), flags);
+        }
+    }
+
     let mut shared = ModuleContext {
         module_name: module.name.clone(),
         line_numbers,
@@ -128,6 +176,7 @@ pub fn module(
         wrapper_cache: HashMap::new(),
         ffi_imports: std::collections::BTreeMap::new(),
         native_signatures,
+        borrowed_signatures,
     };
 
     let mut functions = String::new();
@@ -211,6 +260,11 @@ struct ModuleContext<'a> {
     /// name -> (parameter kinds, return kind). Same-module calls use the
     /// native fn directly; everything else goes through the boxed wrapper.
     native_signatures: HashMap<EcoString, (Vec<ScalarKind>, ScalarKind)>,
+    /// Module functions emitted with the borrowed ABI (`borrowed$name`):
+    /// name -> per-parameter borrowed flag. Same-module calls pass
+    /// borrowed arguments without taking a reference; the wrapper under
+    /// the original name keeps the owned convention.
+    borrowed_signatures: HashMap<EcoString, Vec<bool>>,
 }
 
 impl ModuleContext<'_> {
@@ -373,6 +427,16 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             );
         }
 
+        if let Some(flags) = self.module.borrowed_signatures.get(&name).cloned() {
+            return self.borrowed_function(
+                &name,
+                function,
+                &parameter_names,
+                &flags,
+                visibility,
+            );
+        }
+
         if uses_tail_recursion {
             // Parameters become mutable locals so self tail calls can
             // reassign them and continue the loop. The locals own the
@@ -516,6 +580,70 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         );
 
         format!("{native}\n{wrapper}")
+    }
+
+    /// A function with borrow-only parameters: the body is emitted as
+    /// `borrowed$name` where borrowed parameters carry no reference (the
+    /// caller keeps ownership; no dup at use, no drop at exit), plus a
+    /// wrapper under the original name keeping the owned convention for
+    /// cross-module callers, function references and the entrypoint.
+    fn borrowed_function(
+        &mut self,
+        name: &EcoString,
+        function: &TypedFunction,
+        parameter_names: &[EcoString],
+        flags: &[bool],
+        visibility: &str,
+    ) -> String {
+        let borrowed_name = zig_identifier(&format!("borrowed${name}"));
+        let mut parameter_list = Vec::new();
+        let mut dropped_params = Vec::new();
+        let mut discards = String::new();
+        for (parameter_name, borrowed) in parameter_names.iter().zip(flags) {
+            let rendered = self.bind(parameter_name);
+            parameter_list.push(format!("{rendered}: Value"));
+            if *borrowed {
+                // Borrowed: never dropped here, never move-approved. Its
+                // uses are field reads, which borrow in place.
+                if summarise_uses(parameter_name, &function.body).count == 0 {
+                    discards.push_str(&format!("{INDENT}_ = {rendered};\n"));
+                }
+            } else if summarise_uses(parameter_name, &function.body)
+                .single_straight_line_use()
+            {
+                let _ = self.moved.insert(rendered);
+            } else {
+                dropped_params.push(rendered);
+            }
+        }
+        let body = self.statements(&function.body, Tail::Return, INDENT, &dropped_params);
+        let borrowed = format!(
+            "fn {borrowed_name}({}) Value {{\n{discards}{body}}}\n",
+            parameter_list.join(", "),
+        );
+
+        let wrapper_parameters = (0..flags.len())
+            .map(|index| format!("{}: Value", zig_identifier(&format!("a${index}"))))
+            .join(", ");
+        let forwarded = (0..flags.len())
+            .map(|index| zig_identifier(&format!("a${index}")))
+            .join(", ");
+        // The wrapper owns its arguments: borrowed ones are released
+        // after the call, owned ones transferred into the callee.
+        let wrapper_drops = flags
+            .iter()
+            .enumerate()
+            .filter(|(_, borrowed)| **borrowed)
+            .map(|(index, _)| {
+                format!("{INDENT}P.drop({});\n", zig_identifier(&format!("a${index}")))
+            })
+            .join("");
+        let wrapper = format!(
+            "{visibility}fn {}({wrapper_parameters}) Value {{\n{INDENT}const result = {borrowed_name}({forwarded});\n{wrapper_drops}{INDENT}return result;\n}}\n",
+            zig_identifier(name),
+        );
+
+        format!("{borrowed}\n{wrapper}")
     }
 
     /// Render a statement sequence. The final statement's value is emitted
@@ -1432,6 +1560,126 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         ))
     }
 
+    /// A call to a same-module function with the borrowed ABI. Borrowed
+    /// argument positions pass a reference without taking one: a live
+    /// local goes in directly, a scalar-typed pure operand boxes inline,
+    /// and anything else is bound to a temporary that the caller drops
+    /// after the call. When temporaries are needed, every effectful
+    /// argument is bound in order so left-to-right evaluation holds.
+    fn borrowed_call(
+        &mut self,
+        fun: &TypedExpr,
+        arguments: &[CallArg<TypedExpr>],
+        indent: &str,
+    ) -> Option<String> {
+        let (module, name) = match fun {
+            TypedExpr::Var { constructor, .. } => match &constructor.variant {
+                ValueConstructorVariant::ModuleFn { name, module, .. } => {
+                    (module.clone(), name.clone())
+                }
+                _ => return None,
+            },
+            TypedExpr::ModuleSelect {
+                constructor: ModuleValueConstructor::Fn { module, name, .. },
+                ..
+            } => (module.clone(), name.clone()),
+            _ => return None,
+        };
+        if module != self.module.module_name {
+            return None;
+        }
+        let flags = self.module.borrowed_signatures.get(&name)?.clone();
+        if flags.len() != arguments.len() {
+            return None;
+        }
+        let borrowed_name = zig_identifier(&format!("borrowed${name}"));
+
+        // Pure operands are order-insensitive; everything else must bind
+        // to a temporary in argument order.
+        fn is_pure_operand(expression: &TypedExpr) -> bool {
+            matches!(
+                expression,
+                TypedExpr::Var { .. } | TypedExpr::Int { .. } | TypedExpr::Float { .. }
+            )
+        }
+
+        enum Rendered {
+            /// Passed inline; no ownership handed over, nothing to drop.
+            Direct(String),
+            /// Bound to a temporary in order; dropped after the call when
+            /// the flag is set (borrowed boxed argument).
+            Temp(String, String, bool),
+        }
+        let mut slots = Vec::new();
+        for (argument, borrowed) in arguments.iter().zip(&flags) {
+            if *borrowed {
+                if let Some(local) = self.borrowable_local(&argument.value) {
+                    if let Some(kind) = self.raw_bindings.get(&local) {
+                        // A raw scalar local boxes inline; no references.
+                        slots.push(Rendered::Direct(format!(
+                            "{}({local})",
+                            kind.box_helper()
+                        )));
+                    } else {
+                        slots.push(Rendered::Direct(local));
+                    }
+                    continue;
+                }
+                let scalar = scalar_kind(&argument.value.type_());
+                if let (Some(kind), true) = (scalar, is_pure_operand(&argument.value)) {
+                    let raw = self.scalar(&argument.value, indent);
+                    slots.push(Rendered::Direct(format!("{}({raw})", kind.box_helper())));
+                    continue;
+                }
+                let value = self.expression(&argument.value, indent);
+                let temp = self.fresh_name("bor");
+                // Scalar temporaries carry no reference to release.
+                slots.push(Rendered::Temp(temp, value, scalar.is_none()));
+            } else if is_pure_operand(&argument.value) {
+                slots.push(Rendered::Direct(self.expression(&argument.value, indent)));
+            } else {
+                let value = self.expression(&argument.value, indent);
+                let temp = self.fresh_name("own");
+                // Owned: ownership flows through the temporary into the
+                // callee; nothing to drop here.
+                slots.push(Rendered::Temp(temp, value, false));
+            }
+        }
+
+        let needs_block = slots
+            .iter()
+            .any(|slot| matches!(slot, Rendered::Temp(..)));
+        let rendered_arguments = slots
+            .iter()
+            .map(|slot| match slot {
+                Rendered::Direct(text) => text.clone(),
+                Rendered::Temp(temp, _, _) => temp.clone(),
+            })
+            .join(", ");
+        if !needs_block {
+            return Some(format!("{borrowed_name}({rendered_arguments})"));
+        }
+        let label = self.next_label("bc");
+        let inner_indent = format!("{indent}{INDENT}");
+        let mut out = format!("{label}: {{\n");
+        for slot in &slots {
+            if let Rendered::Temp(temp, value, _) = slot {
+                out.push_str(&format!("{inner_indent}const {temp} = {value};\n"));
+            }
+        }
+        let result = self.fresh_name("r");
+        out.push_str(&format!(
+            "{inner_indent}const {result} = {borrowed_name}({rendered_arguments});\n"
+        ));
+        for slot in &slots {
+            if let Rendered::Temp(temp, _, true) = slot {
+                out.push_str(&format!("{inner_indent}P.drop({temp});\n"));
+            }
+        }
+        out.push_str(&format!("{inner_indent}break :{label} {result};\n{indent}}}"));
+        Some(out)
+    }
+
     /// Render pipeline step bindings into `out`, returning the rendered
     /// binding identifiers the caller must drop at pipeline exit. Steps
     /// whose value is consumed exactly once by the following step (the
@@ -1510,6 +1758,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         // Same-module native-ABI callee: raw call, box the result.
         if let Some((call, return_kind)) = self.native_call(fun, arguments, indent) {
             return format!("{}({call})", return_kind.box_helper());
+        }
+
+        // Same-module borrowed-ABI callee: borrowed arguments pass
+        // without taking a reference.
+        if let Some(call) = self.borrowed_call(fun, arguments, indent) {
+            return call;
         }
 
         let rendered_arguments = arguments
@@ -2788,6 +3042,169 @@ fn expression_has_tail_self_call(expression: &TypedExpr, name: &EcoString) -> bo
         }
         TypedExpr::Pipeline { finally, .. } => expression_has_tail_self_call(finally, name),
         _ => false,
+    }
+}
+
+/// True when every occurrence of `name` in the body is the container of a
+/// field access — the shape a borrowed reference can serve. Conservative:
+/// any bare occurrence, any rebind of the same source name (shadowing is
+/// not tracked), any lambda mentioning it (the closure could outlive the
+/// call), and any guard use (guards feed consuming helpers) disqualify.
+fn param_uses_are_borrow_only(name: &EcoString, body: &[TypedStatement]) -> bool {
+    body.iter().all(|statement| statement_borrow_only(name, statement))
+}
+
+fn statement_borrow_only(name: &EcoString, statement: &TypedStatement) -> bool {
+    match statement {
+        Statement::Expression(expression) => expression_borrow_only(name, expression),
+        Statement::Assignment(assignment) => {
+            !pattern_binds(name, &assignment.pattern)
+                && expression_borrow_only(name, &assignment.value)
+        }
+        Statement::Use(use_) => expression_borrow_only(name, &use_.call),
+        Statement::Assert(assert) => {
+            expression_borrow_only(name, &assert.value)
+                && assert
+                    .message
+                    .as_ref()
+                    .is_none_or(|message| expression_borrow_only(name, message))
+        }
+    }
+}
+
+fn expression_borrow_only(name: &EcoString, expression: &TypedExpr) -> bool {
+    match expression {
+        TypedExpr::Var {
+            constructor,
+            name: used,
+            ..
+        } => {
+            // A bare occurrence is a consuming use.
+            !(used == name
+                && matches!(
+                    constructor.variant,
+                    ValueConstructorVariant::LocalVariable { .. }
+                ))
+        }
+        // The borrow shape: the name as a field-access container.
+        TypedExpr::RecordAccess { record, .. }
+        | TypedExpr::PositionalAccess { record, .. } => match record.as_ref() {
+            TypedExpr::Var { name: used, .. } if used == name => true,
+            other => expression_borrow_only(name, other),
+        },
+        TypedExpr::TupleIndex { tuple, .. } => match tuple.as_ref() {
+            TypedExpr::Var { name: used, .. } if used == name => true,
+            other => expression_borrow_only(name, other),
+        },
+        // A lambda mentioning the name would capture a reference that can
+        // outlive the borrowed call.
+        TypedExpr::Fn { body, .. } => {
+            let mut names = BTreeSet::new();
+            for statement in body {
+                statement_variables(statement, &mut names);
+            }
+            !names.contains(name)
+        }
+        TypedExpr::Int { .. }
+        | TypedExpr::Float { .. }
+        | TypedExpr::String { .. }
+        | TypedExpr::ModuleSelect { .. }
+        | TypedExpr::Invalid { .. } => true,
+        TypedExpr::Block { statements, .. } => statements
+            .iter()
+            .all(|statement| statement_borrow_only(name, statement)),
+        TypedExpr::Pipeline {
+            first_value,
+            assignments,
+            finally,
+            ..
+        } => {
+            expression_borrow_only(name, &first_value.value)
+                && assignments
+                    .iter()
+                    .all(|(assignment, _)| expression_borrow_only(name, &assignment.value))
+                && expression_borrow_only(name, finally)
+        }
+        TypedExpr::List { elements, tail, .. } => {
+            elements
+                .iter()
+                .all(|element| expression_borrow_only(name, element))
+                && tail
+                    .as_ref()
+                    .is_none_or(|tail| expression_borrow_only(name, tail))
+        }
+        TypedExpr::Call { fun, arguments, .. } => {
+            expression_borrow_only(name, fun)
+                && arguments
+                    .iter()
+                    .all(|argument| expression_borrow_only(name, &argument.value))
+        }
+        TypedExpr::BinOp { left, right, .. } => {
+            expression_borrow_only(name, left) && expression_borrow_only(name, right)
+        }
+        TypedExpr::Case {
+            subjects, clauses, ..
+        } => {
+            subjects
+                .iter()
+                .all(|subject| expression_borrow_only(name, subject))
+                && clauses.iter().all(|clause| {
+                    let mut patterns = vec![&clause.pattern];
+                    patterns.extend(clause.alternative_patterns.iter());
+                    let rebinds = patterns.iter().any(|multi| {
+                        multi.iter().any(|pattern| pattern_binds(name, pattern))
+                    });
+                    let guard_mentions = clause.guard.as_ref().is_some_and(|guard| {
+                        let mut names = BTreeSet::new();
+                        guard_variables(guard, &mut names);
+                        names.contains(name)
+                    });
+                    !rebinds
+                        && !guard_mentions
+                        && expression_borrow_only(name, &clause.then)
+                })
+        }
+        TypedExpr::Tuple { elements, .. } => elements
+            .iter()
+            .all(|element| expression_borrow_only(name, element)),
+        TypedExpr::Todo { message, .. } | TypedExpr::Panic { message, .. } => message
+            .as_ref()
+            .is_none_or(|message| expression_borrow_only(name, message)),
+        TypedExpr::Echo {
+            expression: inner,
+            message,
+            ..
+        } => {
+            inner
+                .as_ref()
+                .is_none_or(|inner| expression_borrow_only(name, inner))
+                && message
+                    .as_ref()
+                    .is_none_or(|message| expression_borrow_only(name, message))
+        }
+        TypedExpr::RecordUpdate {
+            updated_record,
+            constructor,
+            arguments,
+            ..
+        } => {
+            expression_borrow_only(name, updated_record)
+                && expression_borrow_only(name, constructor)
+                && arguments
+                    .iter()
+                    .all(|argument| expression_borrow_only(name, &argument.value))
+        }
+        TypedExpr::NegateBool { value, .. } | TypedExpr::NegateInt { value, .. } => {
+            expression_borrow_only(name, value)
+        }
+        TypedExpr::BitArray { segments, .. } => segments.iter().all(|segment| {
+            expression_borrow_only(name, &segment.value)
+                && segment.options.iter().all(|option| {
+                    option
+                        .value()
+                        .is_none_or(|size| expression_borrow_only(name, size))
+                })
+        }),
     }
 }
 

@@ -40,7 +40,11 @@ fn rc_allocator() std.mem.Allocator {
 }
 
 /// Scratch allocator for FFI temporaries that are not reference counted.
-pub const allocator = std.heap.page_allocator;
+/// smp_allocator, not page_allocator: scratch allocations are hot (one
+/// per formatted number, builder growth step...) and page_allocator costs
+/// an mmap/munmap syscall pair each — the ray tracer spent more time in
+/// those than in rendering.
+pub const allocator = std.heap.smp_allocator;
 
 pub const Value = union(enum) {
     int: i64,
