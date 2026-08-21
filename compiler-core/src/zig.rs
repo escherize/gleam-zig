@@ -3,8 +3,11 @@
 
 // Zig target code generation.
 //
-// All values use the uniform `Value` union defined in templates/prelude.zig,
-// and all memory is leaked (Perceus RC comes later). Pattern matching
+// Values use the uniform `Value` union defined in templates/prelude.zig,
+// except scalar (Int/Float/Bool) expressions and locals, which are emitted
+// as raw i64/f64/bool and boxed only at polymorphic boundaries. Module
+// functions whose signature is entirely concrete scalars are emitted with
+// a raw native ABI plus a boxed public wrapper. Pattern matching
 // compiles to sequential per-clause checks rather than decision trees; the
 // type checker has already proven exhaustiveness so a fallthrough is
 // `unreachable`. Unsupported constructs (bit arrays, external fns) panic
@@ -27,6 +30,54 @@ pub const PRELUDE: &str = include_str!("../templates/prelude.zig");
 
 const INDENT: &str = "    ";
 
+/// A Gleam type with an unboxed zig representation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScalarKind {
+    Int,
+    Float,
+    Bool,
+}
+
+impl ScalarKind {
+    /// The `Value` union field holding this scalar.
+    fn field(self) -> &'static str {
+        match self {
+            ScalarKind::Int => "int",
+            ScalarKind::Float => "float",
+            ScalarKind::Bool => "bool",
+        }
+    }
+
+    fn zig_type(self) -> &'static str {
+        match self {
+            ScalarKind::Int => "i64",
+            ScalarKind::Float => "f64",
+            ScalarKind::Bool => "bool",
+        }
+    }
+
+    /// The prelude helper wrapping a raw scalar into a `Value`.
+    fn box_helper(self) -> &'static str {
+        match self {
+            ScalarKind::Int => "P.intValue",
+            ScalarKind::Float => "P.floatValue",
+            ScalarKind::Bool => "P.boolValue",
+        }
+    }
+}
+
+fn scalar_kind(type_: &crate::type_::Type) -> Option<ScalarKind> {
+    if type_.is_int() {
+        Some(ScalarKind::Int)
+    } else if type_.is_float() {
+        Some(ScalarKind::Float)
+    } else if type_.is_bool() {
+        Some(ScalarKind::Bool)
+    } else {
+        None
+    }
+}
+
 pub fn module(
     module: &TypedModule,
     line_numbers: &LineNumbers,
@@ -36,6 +87,34 @@ pub fn module(
     let mut imported_packages: HashMap<EcoString, EcoString> = HashMap::new();
     for import in &module.definitions.imports {
         let _ = imported_packages.insert(import.module.clone(), import.package.clone());
+    }
+
+    // Functions whose signature is entirely concrete scalars get a raw
+    // native ABI; computed up front so call sites anywhere in the module
+    // (including bodies generated before the callee) can use it.
+    let mut native_signatures = HashMap::new();
+    for function in &module.definitions.functions {
+        let Some((_, name)) = &function.name else {
+            continue;
+        };
+        if function.external_zig.is_some()
+            || function.body.is_empty()
+            || !function.implementations.supports(crate::build::Target::Zig)
+        {
+            continue;
+        }
+        let Some(return_kind) = scalar_kind(&function.return_type) else {
+            continue;
+        };
+        let Some(parameter_kinds) = function
+            .arguments
+            .iter()
+            .map(|argument| scalar_kind(&argument.type_))
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let _ = native_signatures.insert(name.clone(), (parameter_kinds, return_kind));
     }
 
     let mut shared = ModuleContext {
@@ -48,6 +127,7 @@ pub fn module(
         lambda_counter: 0,
         wrapper_cache: HashMap::new(),
         ffi_imports: std::collections::BTreeMap::new(),
+        native_signatures,
     };
 
     let mut functions = String::new();
@@ -127,6 +207,10 @@ struct ModuleContext<'a> {
     wrapper_cache: HashMap<(EcoString, EcoString, usize), String>,
     /// FFI import path -> zig import const identifier, for @external(zig).
     ffi_imports: std::collections::BTreeMap<EcoString, String>,
+    /// Module functions emitted with the raw scalar ABI (`native$name`):
+    /// name -> (parameter kinds, return kind). Same-module calls use the
+    /// native fn directly; everything else goes through the boxed wrapper.
+    native_signatures: HashMap<EcoString, (Vec<ScalarKind>, ScalarKind)>,
 }
 
 impl ModuleContext<'_> {
@@ -177,6 +261,13 @@ struct FunctionGenerator<'a, 'm> {
     /// execute can never take the token.
     reuse_token: Option<(String, usize)>,
     reuse_barrier: usize,
+    /// Rendered binding names holding raw (unboxed) scalars, with their
+    /// kind. Raw bindings carry no references: no dup, no drop, no move
+    /// bookkeeping; boxed on demand at polymorphic uses.
+    raw_bindings: HashMap<String, ScalarKind>,
+    /// Set while generating a native-ABI function body: `return` exits
+    /// unwrap their boxed value to this raw kind.
+    native_return: Option<ScalarKind>,
 }
 
 impl<'a, 'm> FunctionGenerator<'a, 'm> {
@@ -192,6 +283,8 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             moved: HashSet::new(),
             reuse_token: None,
             reuse_barrier: 0,
+            raw_bindings: HashMap::new(),
+            native_return: None,
         }
     }
 
@@ -254,6 +347,20 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             "pub "
         };
 
+        if let Some((parameter_kinds, return_kind)) =
+            self.module.native_signatures.get(&name).cloned()
+        {
+            return self.native_function(
+                &name,
+                function,
+                &parameter_names,
+                &parameter_kinds,
+                return_kind,
+                uses_tail_recursion,
+                visibility,
+            );
+        }
+
         if uses_tail_recursion {
             // Parameters become mutable locals so self tail calls can
             // reassign them and continue the loop. The locals own the
@@ -314,6 +421,91 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         }
     }
 
+    /// A function whose signature is entirely concrete scalars: the body
+    /// is emitted as `native$name` taking and returning raw i64/f64/bool,
+    /// plus a boxed wrapper under the original name for cross-module
+    /// callers, function references and the entrypoint.
+    fn native_function(
+        &mut self,
+        name: &EcoString,
+        function: &TypedFunction,
+        parameter_names: &[EcoString],
+        parameter_kinds: &[ScalarKind],
+        return_kind: ScalarKind,
+        uses_tail_recursion: bool,
+        visibility: &str,
+    ) -> String {
+        let native_name = zig_identifier(&format!("native${name}"));
+        self.native_return = Some(return_kind);
+
+        let mut parameter_list = Vec::new();
+        // Raw parameters that the body never reads still need a use, or
+        // zig rejects the declaration.
+        let mut discards = String::new();
+        let native = if uses_tail_recursion {
+            let mut locals = Vec::new();
+            let mut local_idents = Vec::new();
+            for (parameter_name, kind) in parameter_names.iter().zip(parameter_kinds) {
+                let rendered = self.bind(parameter_name);
+                let incoming = zig_identifier(&format!("p${parameter_name}"));
+                parameter_list.push(format!("{incoming}: {}", kind.zig_type()));
+                locals.push(format!("{INDENT}var {rendered} = {incoming};\n"));
+                if summarise_uses(parameter_name, &function.body).count == 0 {
+                    discards.push_str(&format!("{INDENT}_ = {rendered};\n"));
+                }
+                let _ = self.raw_bindings.insert(rendered.clone(), *kind);
+                local_idents.push(rendered);
+            }
+            self.tail_target = Some((name.clone(), local_idents));
+
+            let inner_indent = format!("{INDENT}{INDENT}");
+            let body = self.statements(&function.body, Tail::Return, &inner_indent, &[]);
+            format!(
+                "fn {native_name}({}) {} {{\n{}{discards}{INDENT}while (true) {{\n{body}{INDENT}}}\n}}\n",
+                parameter_list.join(", "),
+                return_kind.zig_type(),
+                locals.join(""),
+            )
+        } else {
+            for (parameter_name, kind) in parameter_names.iter().zip(parameter_kinds) {
+                let rendered = self.bind(parameter_name);
+                parameter_list.push(format!("{rendered}: {}", kind.zig_type()));
+                if summarise_uses(parameter_name, &function.body).count == 0 {
+                    discards.push_str(&format!("{INDENT}_ = {rendered};\n"));
+                }
+                let _ = self.raw_bindings.insert(rendered, *kind);
+            }
+            let body = self.statements(&function.body, Tail::Return, INDENT, &[]);
+            format!(
+                "fn {native_name}({}) {} {{\n{discards}{body}}}\n",
+                parameter_list.join(", "),
+                return_kind.zig_type(),
+            )
+        };
+
+        let wrapper_parameters = (0..parameter_kinds.len())
+            .map(|index| format!("{}: Value", zig_identifier(&format!("a${index}"))))
+            .join(", ");
+        let forwarded = parameter_kinds
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| {
+                format!(
+                    "({}).{}",
+                    zig_identifier(&format!("a${index}")),
+                    kind.field()
+                )
+            })
+            .join(", ");
+        let wrapper = format!(
+            "{visibility}fn {}({wrapper_parameters}) Value {{\n{INDENT}return {}({native_name}({forwarded}));\n}}\n",
+            zig_identifier(name),
+            return_kind.box_helper(),
+        );
+
+        format!("{native}\n{wrapper}")
+    }
+
     /// Render a statement sequence. The final statement's value is emitted
     /// according to `tail`: returned (function body, `Tail::Return`) or
     /// left as a `BREAK_PLACEHOLDER` for the enclosing labelled block.
@@ -359,6 +551,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     }
                 }
                 Statement::Assignment(assignment) => {
+                    let later_uses = match &assignment.pattern {
+                        Pattern::Variable { name, .. } if !is_last => {
+                            Some(summarise_uses(name, &statements[index + 1..]))
+                        }
+                        _ => None,
+                    };
                     // Last-use move: a simple binding whose only use is
                     // straight-line in the remaining statements hands its
                     // reference over at that use instead of dup + drop.
@@ -368,12 +566,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                             Pattern::Variable { .. },
                             AssignmentKind::Let | AssignmentKind::Generated
                         )
-                    ) && !is_last
-                        && matches!(&assignment.pattern, Pattern::Variable { name, .. }
-                            if summarise_uses(name, &statements[index + 1..])
-                                .single_straight_line_use());
+                    ) && later_uses
+                        .is_some_and(|uses| uses.single_straight_line_use());
+                    // A raw scalar binding with no later uses has no
+                    // scope-exit drop to reference it; zig rejects unused
+                    // locals, so emit a discard.
+                    let unused_after = later_uses.is_some_and(|uses| uses.count == 0);
                     let (bindings, text, final_value) =
-                        self.assignment(assignment, is_last, indent);
+                        self.assignment(assignment, is_last, unused_after, indent);
                     out.push_str(&text);
                     if movable {
                         for binding in &bindings {
@@ -383,13 +583,18 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         own.extend(bindings);
                     }
                     if let Some(final_value) = final_value {
+                        // A raw scalar binding boxes on the way out.
+                        let final_value = match self.raw_bindings.get(&final_value) {
+                            Some(kind) => format!("{}({final_value})", kind.box_helper()),
+                            None => final_value,
+                        };
                         let drops: Vec<String> =
                             own.iter().chain(pending_drops).cloned().collect();
                         out.push_str(&self.exit_value(&final_value, tail, indent, &drops));
                     }
                 }
                 Statement::Assert(assert) => {
-                    let value = self.expression(&assert.value, indent);
+                    let value = self.scalar(&assert.value, indent);
                     let message = self.panic_message(
                         assert.message.as_ref(),
                         "assertion failed",
@@ -397,7 +602,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     );
                     let line = self.line_number(&assert.location);
                     out.push_str(&format!(
-                        "{indent}if (!(({value}).bool)) P.gleamPanic({message}, \"{}\", {line});\n",
+                        "{indent}if (!({value})) P.gleamPanic({message}, \"{}\", {line});\n",
                         self.module.src_path
                     ));
                     if is_last {
@@ -444,6 +649,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 TypedExpr::Block { statements, .. } => {
                     return self.statements(statements.as_slice(), Tail::Return, indent, drops);
                 }
+                // noreturn: emit as a bare statement. In a native-ABI
+                // function the usual exit would read a union field off a
+                // noreturn call, which zig rejects.
+                TypedExpr::Panic { .. } | TypedExpr::Todo { .. }
+                    if self.native_return.is_some() =>
+                {
+                    let value = self.expression(expression, indent);
+                    return format!("{indent}{value};\n");
+                }
                 TypedExpr::Pipeline {
                     first_value,
                     assignments,
@@ -472,21 +686,34 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     }
 
     /// Emit an exit (return or labelled break) of `value`, releasing
-    /// `drops` after the value is computed.
+    /// `drops` after the value is computed. Returns from a native-ABI
+    /// function unwrap the boxed value to its raw scalar.
     fn exit_value(&mut self, value: &str, tail: Tail, indent: &str, drops: &[String]) -> String {
         let keyword = match tail {
             Tail::Return => "return",
             Tail::No => BREAK_PLACEHOLDER,
         };
+        let unbox = match (tail, self.native_return) {
+            (Tail::Return, Some(kind)) => Some(kind),
+            _ => None,
+        };
         if drops.is_empty() {
-            return format!("{indent}{keyword} {value};\n");
+            return match unbox {
+                Some(kind) => format!("{indent}return ({value}).{};\n", kind.field()),
+                None => format!("{indent}{keyword} {value};\n"),
+            };
         }
         let result = self.fresh_name("r");
         let mut out = format!("{indent}const {result} = {value};\n");
         for binding in drops {
             out.push_str(&format!("{indent}P.drop({binding});\n"));
         }
-        out.push_str(&format!("{indent}{keyword} {result};\n"));
+        match unbox {
+            Some(kind) => {
+                out.push_str(&format!("{indent}return ({result}).{};\n", kind.field()))
+            }
+            None => out.push_str(&format!("{indent}{keyword} {result};\n")),
+        }
         out
     }
 
@@ -515,7 +742,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let mut out = String::new();
         let mut temporaries = Vec::new();
         for argument in arguments.iter() {
-            let value = self.expression(&argument.value, indent);
+            // In a native-ABI function the loop locals are raw scalars.
+            let value = if self.native_return.is_some() {
+                self.scalar(&argument.value, indent)
+            } else {
+                self.expression(&argument.value, indent)
+            };
             let temporary = self.fresh_name("tail");
             out.push_str(&format!("{indent}const {temporary} = {value};\n"));
             temporaries.push(temporary);
@@ -536,10 +768,31 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         &mut self,
         assignment: &TypedAssignment,
         is_last: bool,
+        unused_after: bool,
         indent: &str,
     ) -> (Vec<String>, String, Option<String>) {
-        let value = self.expression(&assignment.value, indent);
         let is_let_assert = matches!(assignment.kind, AssignmentKind::Assert { .. });
+
+        // A simple binding of a scalar-typed value becomes a raw typed
+        // local: no reference counting, boxed on demand at later uses.
+        if let (Pattern::Variable { name, .. }, false) = (&assignment.pattern, is_let_assert) {
+            if let Some(kind) = scalar_kind(&assignment.value.type_()) {
+                let raw = self.scalar(&assignment.value, indent);
+                let rendered = self.bind(name);
+                let _ = self.raw_bindings.insert(rendered.clone(), kind);
+                let mut out = format!(
+                    "{indent}const {rendered}: {} = {raw};\n",
+                    kind.zig_type()
+                );
+                if unused_after {
+                    out.push_str(&format!("{indent}_ = {rendered};\n"));
+                }
+                let final_value = if is_last { Some(rendered) } else { None };
+                return (Vec::new(), out, final_value);
+            }
+        }
+
+        let value = self.expression(&assignment.value, indent);
 
         match &assignment.pattern {
             Pattern::Variable { name, .. } if !is_let_assert => {
@@ -659,17 +912,26 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 left,
                 right,
                 ..
-            } => {
-                let left = self.expression(left, indent);
-                // Short-circuit right operands are conditional regions.
-                let saved_barrier = self.reuse_barrier;
-                if matches!(operator, BinOp::And | BinOp::Or) {
-                    self.reuse_barrier += 1;
+            } => match operator {
+                // String concatenation, and structural equality on boxed
+                // operands, stay on the consuming boxed helpers.
+                BinOp::Concatenate => {
+                    let left = self.expression(left, indent);
+                    let right = self.expression(right, indent);
+                    binary_operator(*operator, &left, &right)
                 }
-                let right = self.expression(right, indent);
-                self.reuse_barrier = saved_barrier;
-                binary_operator(*operator, &left, &right)
-            }
+                BinOp::Eq | BinOp::NotEq if scalar_kind(&left.type_()).is_none() => {
+                    let left = self.expression(left, indent);
+                    let right = self.expression(right, indent);
+                    binary_operator(*operator, &left, &right)
+                }
+                // Everything else computes raw and boxes the result once.
+                _ => {
+                    let kind = scalar_kind(&expression.type_())
+                        .expect("zig codegen: non-scalar arithmetic result");
+                    format!("{}({})", kind.box_helper(), self.scalar(expression, indent))
+                }
+            },
 
             TypedExpr::Case {
                 subjects, clauses, ..
@@ -866,12 +1128,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 )
             }
 
-            TypedExpr::NegateInt { value, .. } => {
-                format!("P.negateInt({})", self.expression(value, indent))
+            TypedExpr::NegateInt { .. } => {
+                format!("P.intValue({})", self.scalar(expression, indent))
             }
 
-            TypedExpr::NegateBool { value, .. } => {
-                format!("P.negateBool({})", self.expression(value, indent))
+            TypedExpr::NegateBool { .. } => {
+                format!("P.boolValue({})", self.scalar(expression, indent))
             }
 
             TypedExpr::BitArray { segments, .. } => {
@@ -882,6 +1144,178 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 panic!("zig codegen: invalid expression reached codegen")
             }
         }
+    }
+
+    /// Render a scalar-typed (Int/Float/Bool) expression as a raw zig
+    /// i64/f64/bool. Total: subtrees without a raw form render boxed and
+    /// read the union field, which is free for scalars (no references).
+    fn scalar(&mut self, expression: &TypedExpr, indent: &str) -> String {
+        let kind = scalar_kind(&expression.type_())
+            .expect("zig codegen: scalar render of a non-scalar expression");
+        match expression {
+            TypedExpr::Int { int_value, .. } => format!("{int_value}"),
+
+            TypedExpr::Float { value, .. } => value.to_string(),
+
+            TypedExpr::Var {
+                constructor, name, ..
+            } => match &constructor.variant {
+                ValueConstructorVariant::LocalVariable { .. } => {
+                    let rendered = self.scope.get(name).cloned().unwrap_or_else(|| {
+                        panic!("zig codegen: variable {name} not in scope")
+                    });
+                    if self.raw_bindings.contains_key(&rendered) {
+                        rendered
+                    } else {
+                        // Scalars carry no references: read the field
+                        // directly, no dup or move bookkeeping needed.
+                        format!("({rendered}).{}", kind.field())
+                    }
+                }
+                ValueConstructorVariant::Record { name, .. } if name == "True" => {
+                    "true".to_string()
+                }
+                ValueConstructorVariant::Record { name, .. } if name == "False" => {
+                    "false".to_string()
+                }
+                _ => format!("({}).{}", self.expression(expression, indent), kind.field()),
+            },
+
+            TypedExpr::BinOp {
+                operator,
+                left,
+                right,
+                ..
+            } => self.scalar_binop(*operator, left, right, indent),
+
+            TypedExpr::NegateInt { value, .. } => {
+                format!("(0 -% {})", self.scalar(value, indent))
+            }
+
+            TypedExpr::NegateBool { value, .. } => {
+                format!("!({})", self.scalar(value, indent))
+            }
+
+            TypedExpr::Call { fun, arguments, .. } => {
+                match self.native_call(fun, arguments, indent) {
+                    Some((call, _)) => call,
+                    None => {
+                        format!("({}).{}", self.expression(expression, indent), kind.field())
+                    }
+                }
+            }
+
+            // noreturn coerces to any scalar type; there is no field to
+            // read.
+            TypedExpr::Panic { .. } | TypedExpr::Todo { .. } => {
+                self.expression(expression, indent)
+            }
+
+            _ => format!("({}).{}", self.expression(expression, indent), kind.field()),
+        }
+    }
+
+    fn scalar_binop(
+        &mut self,
+        operator: BinOp,
+        left: &TypedExpr,
+        right: &TypedExpr,
+        indent: &str,
+    ) -> String {
+        let token = match operator {
+            BinOp::And | BinOp::Or => {
+                let left = self.scalar(left, indent);
+                // The right operand may not run: a conditional region for
+                // reuse tokens, exactly as in the boxed path.
+                let saved_barrier = self.reuse_barrier;
+                self.reuse_barrier += 1;
+                let right = self.scalar(right, indent);
+                self.reuse_barrier = saved_barrier;
+                let keyword = if operator == BinOp::And { "and" } else { "or" };
+                return format!("({left} {keyword} {right})");
+            }
+            BinOp::Eq | BinOp::NotEq => {
+                if scalar_kind(&left.type_()).is_some() {
+                    let left = self.scalar(left, indent);
+                    let right = self.scalar(right, indent);
+                    let token = if operator == BinOp::Eq { "==" } else { "!=" };
+                    return format!("({left} {token} {right})");
+                }
+                // Structural equality on boxed operands.
+                let left = self.expression(left, indent);
+                let right = self.expression(right, indent);
+                let helper = if operator == BinOp::Eq { "eq" } else { "notEq" };
+                return format!("(P.{helper}({left}, {right})).bool");
+            }
+            // Division and remainder keep Gleam's zero-divisor semantics.
+            BinOp::DivInt => {
+                let left = self.scalar(left, indent);
+                let right = self.scalar(right, indent);
+                return format!("P.rawDivInt({left}, {right})");
+            }
+            BinOp::RemainderInt => {
+                let left = self.scalar(left, indent);
+                let right = self.scalar(right, indent);
+                return format!("P.rawRemInt({left}, {right})");
+            }
+            BinOp::DivFloat => {
+                let left = self.scalar(left, indent);
+                let right = self.scalar(right, indent);
+                return format!("P.rawDivFloat({left}, {right})");
+            }
+            BinOp::AddInt => "+%",
+            BinOp::SubInt => "-%",
+            BinOp::MultInt => "*%",
+            BinOp::AddFloat => "+",
+            BinOp::SubFloat => "-",
+            BinOp::MultFloat => "*",
+            BinOp::LtInt | BinOp::LtFloat => "<",
+            BinOp::LtEqInt | BinOp::LtEqFloat => "<=",
+            BinOp::GtInt | BinOp::GtFloat => ">",
+            BinOp::GtEqInt | BinOp::GtEqFloat => ">=",
+            BinOp::Concatenate => {
+                unreachable!("zig codegen: concatenate is not a scalar operation")
+            }
+        };
+        let left = self.scalar(left, indent);
+        let right = self.scalar(right, indent);
+        format!("({left} {token} {right})")
+    }
+
+    /// A call to a same-module function with the raw scalar ABI: render it
+    /// natively (raw arguments, raw result) and return the call with its
+    /// result kind.
+    fn native_call(
+        &mut self,
+        fun: &TypedExpr,
+        arguments: &[CallArg<TypedExpr>],
+        indent: &str,
+    ) -> Option<(String, ScalarKind)> {
+        let (module, name) = match fun {
+            TypedExpr::Var { constructor, .. } => match &constructor.variant {
+                ValueConstructorVariant::ModuleFn { name, module, .. } => {
+                    (module.clone(), name.clone())
+                }
+                _ => return None,
+            },
+            TypedExpr::ModuleSelect {
+                constructor: ModuleValueConstructor::Fn { module, name, .. },
+                ..
+            } => (module.clone(), name.clone()),
+            _ => return None,
+        };
+        if module != self.module.module_name {
+            return None;
+        }
+        let (_, return_kind) = self.module.native_signatures.get(&name)?.clone();
+        let rendered = arguments
+            .iter()
+            .map(|argument| self.scalar(&argument.value, indent))
+            .join(", ");
+        Some((
+            format!("{}({rendered})", zig_identifier(&format!("native${name}"))),
+            return_kind,
+        ))
     }
 
     /// Render pipeline step bindings into `out`, returning the rendered
@@ -959,6 +1393,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         arguments: &[CallArg<TypedExpr>],
         indent: &str,
     ) -> String {
+        // Same-module native-ABI callee: raw call, box the result.
+        if let Some((call, return_kind)) = self.native_call(fun, arguments, indent) {
+            return format!("{}({call})", return_kind.box_helper());
+        }
+
         let rendered_arguments = arguments
             .iter()
             .map(|argument| self.expression(&argument.value, indent))
@@ -1188,10 +1627,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             parameter_list.join(", ")
         ));
 
-        // Creating the closure takes a reference to each captured value.
+        // Creating the closure takes a reference to each captured value;
+        // raw scalar captures box into the environment.
         let environment = captures
             .iter()
-            .map(|(_, rendered)| format!("P.dup({rendered})"))
+            .map(|(_, rendered)| match self.raw_bindings.get(rendered) {
+                Some(kind) => format!("{}({rendered})", kind.box_helper()),
+                None => format!("P.dup({rendered})"),
+            })
             .join(", ");
         format!("P.makeClosure(@ptrCast(&{lambda}), &[_]Value{{ {environment} }})")
     }
@@ -1673,7 +2116,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                                     "zig codegen: bit array size variable {name} not in scope"
                                 )
                             });
-                            format!("({rendered}).int")
+                            if self.raw_bindings.contains_key(&rendered) {
+                                rendered
+                            } else {
+                                format!("({rendered}).int")
+                            }
                         }
                     }
                     _ => panic!(
@@ -1829,6 +2276,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| panic!("zig codegen: guard variable {name} not in scope"));
+                // A raw scalar binding boxes for the consuming helpers.
+                if let Some(kind) = self.raw_bindings.get(&rendered) {
+                    return format!("{}({rendered})", kind.box_helper());
+                }
                 // Guard operands feed consuming helpers (eq, tupleField...),
                 // so each use takes its own reference like any other use.
                 // Guards are branchy, so bindings here are never
@@ -1954,6 +2405,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| panic!("zig codegen: variable {name} not in scope"));
+                // A raw scalar binding boxes at this polymorphic use.
+                if let Some(kind) = self.raw_bindings.get(&rendered) {
+                    return format!("{}({rendered})", kind.box_helper());
+                }
                 // A move-approved binding transfers its reference at this
                 // (single) use; otherwise the use takes its own reference
                 // and the binding's is released at scope exit.

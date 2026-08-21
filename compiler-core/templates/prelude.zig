@@ -537,6 +537,25 @@ pub fn gtEqFloat(a: Value, b: Value) Value {
     return boolValue(a.float >= b.float);
 }
 
+// ------------------------------------------------------------- raw scalars
+// Unboxed arithmetic helpers for the emitter's raw scalar subtrees;
+// same semantics as the Value versions (division by zero is zero).
+
+pub fn rawDivInt(a: i64, b: i64) i64 {
+    if (b == 0) return 0;
+    return @divTrunc(a, b);
+}
+
+pub fn rawRemInt(a: i64, b: i64) i64 {
+    if (b == 0) return 0;
+    return @rem(a, b);
+}
+
+pub fn rawDivFloat(a: f64, b: f64) f64 {
+    if (b == 0.0) return 0.0;
+    return a / b;
+}
+
 // ---------------------------------------------------------------- closure
 // callN consumes the closure and the arguments (the callee owns its
 // parameters; the env is borrowed for the duration of the call).
