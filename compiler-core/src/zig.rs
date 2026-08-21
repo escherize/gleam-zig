@@ -170,8 +170,13 @@ struct FunctionGenerator<'a, 'm> {
     moved: HashSet<String>,
     /// A reuse token (?*Cons identifier) available to the next
     /// single-element list construction rendered in the current clause
-    /// body. Set only when that construction is guaranteed to render.
-    reuse_token: Option<String>,
+    /// body, together with the barrier level it was armed at. The token
+    /// may only be consumed at the same barrier level: conditional code
+    /// (nested cases, lambda bodies, short-circuit right operands, panic
+    /// messages) increments the level, so a construction that might not
+    /// execute can never take the token.
+    reuse_token: Option<(String, usize)>,
+    reuse_barrier: usize,
 }
 
 impl<'a, 'm> FunctionGenerator<'a, 'm> {
@@ -186,6 +191,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             pipe_value: None,
             moved: HashSet::new(),
             reuse_token: None,
+            reuse_barrier: 0,
         }
     }
 
@@ -429,7 +435,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 TypedExpr::Case {
                     subjects, clauses, ..
                 } => {
-                    return self.case_statement(subjects, clauses, indent, drops);
+                    let saved_barrier = self.reuse_barrier;
+                    self.reuse_barrier += 1;
+                    let out = self.case_statement(subjects, clauses, indent, drops);
+                    self.reuse_barrier = saved_barrier;
+                    return out;
                 }
                 TypedExpr::Block { statements, .. } => {
                     return self.statements(statements.as_slice(), Tail::Return, indent, drops);
@@ -651,17 +661,29 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 ..
             } => {
                 let left = self.expression(left, indent);
+                // Short-circuit right operands are conditional regions.
+                let saved_barrier = self.reuse_barrier;
+                if matches!(operator, BinOp::And | BinOp::Or) {
+                    self.reuse_barrier += 1;
+                }
                 let right = self.expression(right, indent);
+                self.reuse_barrier = saved_barrier;
                 binary_operator(*operator, &left, &right)
             }
 
             TypedExpr::Case {
                 subjects, clauses, ..
             } => {
+                // Conditional region: pending reuse tokens must not be
+                // consumed by constructions inside clause bodies. The level
+                // restores afterwards so later siblings can still consume.
+                let saved_barrier = self.reuse_barrier;
+                self.reuse_barrier += 1;
                 let label = self.next_label("case");
                 let inner_indent = format!("{indent}{INDENT}");
                 let body =
                     self.case_clauses(subjects, clauses, Tail::No, &label, &inner_indent, &[]);
+                self.reuse_barrier = saved_barrier;
                 format!("{label}: {{\n{body}{inner_indent}unreachable;\n{indent}}}")
             }
 
@@ -681,12 +703,17 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 // A pending reuse token feeds the canonical `[x, ..rest]`
                 // construction: the matched cell is written in place when
                 // it was unshared.
-                if elements.len() == 1 && tail.is_some() {
-                    if let Some(token) = self.reuse_token.take() {
-                        let head = self.expression(&elements[0], indent);
-                        let tail = self.expression(tail.as_ref().expect("tail"), indent);
-                        return format!("P.consReuse({token}, {head}, {tail})");
-                    }
+                if elements.len() == 1
+                    && tail.is_some()
+                    && self
+                        .reuse_token
+                        .as_ref()
+                        .is_some_and(|(_, armed)| *armed == self.reuse_barrier)
+                {
+                    let (token, _) = self.reuse_token.take().expect("checked");
+                    let head = self.expression(&elements[0], indent);
+                    let tail = self.expression(tail.as_ref().expect("tail"), indent);
+                    return format!("P.consReuse({token}, {head}, {tail})");
                 }
                 let tail = match tail {
                     Some(tail) => self.expression(tail, indent),
@@ -728,9 +755,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         let record = self.expression(updated_record, &inner_indent);
                         let rendered = self.bind(name);
                         let call = self.call(constructor, arguments, &inner_indent);
+                        let result = self.fresh_name("r");
                         self.scope = saved_scope;
                         format!(
-                            "{label}: {{\n{inner_indent}const {rendered} = {record};\n{inner_indent}break :{label} {call};\n{indent}}}"
+                            "{label}: {{\n{inner_indent}const {rendered} = {record};\n{inner_indent}const {result} = {call};\n{inner_indent}P.drop({rendered});\n{inner_indent}break :{label} {result};\n{indent}}}"
                         )
                     }
                     None => self.call(constructor, arguments, indent),
@@ -1127,6 +1155,8 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
         }
 
+        // Lambda bodies run zero or many times; a fresh generator means a
+        // fresh (empty) token state, so no cross-contamination is possible.
         let mut generator = FunctionGenerator::new(self.module);
         for (index, (name, _)) in captures.iter().enumerate() {
             let _ = generator
@@ -1259,14 +1289,16 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 // has passed (a failed guard leaves the subject owned by
                 // the case), and the subject is then excluded from this
                 // clause's exit drops.
-                let reuses = subjects.len() == 1 && clause_reuses_cons(clause);
+                let reuses = subjects.len() == 1
+                    && clause_reuses_cons(clause)
+                    && self.reuse_token.is_none();
                 if reuses {
                     let token = self.fresh_name("reuse");
                     guard_and_body.push_str(&format!(
                         "{inner_indent}const {token} = P.dropReuseCons({});\n",
                         subject_names[0]
                     ));
-                    self.reuse_token = Some(token);
+                    self.reuse_token = Some((token, self.reuse_barrier));
                 }
                 let subject_drops: &[String] = if reuses { &[] } else { &subject_names };
 
@@ -1593,6 +1625,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let mut slot = 0;
         let mut ends_with_rest = false;
 
+        // The runtime matcher has 16 fixed slots.
+        if segments.len() > 16 {
+            panic!(
+                "zig codegen: bit array patterns with more than 16 segments are not supported yet"
+            )
+        }
+
         for (index, segment) in segments.iter().enumerate() {
             let is_last = index == segments.len() - 1;
             let (kind, size, signed, little) = Self::segment_layout(&segment.options);
@@ -1622,17 +1661,19 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         format!("{n}")
                     }
                     BitArraySize::Variable { name, .. } => {
+                        // Raw i64; the runtime extractors reject negative or
+                        // misaligned sizes by failing the match.
                         if let Some((_, slot)) =
                             int_slots.iter().find(|(bound, _)| bound == name)
                         {
-                            format!("@as(usize, @intCast({matcher}.ints[{slot}]))")
+                            format!("{matcher}.ints[{slot}]")
                         } else {
                             let rendered = self.scope.get(name).cloned().unwrap_or_else(|| {
                                 panic!(
                                     "zig codegen: bit array size variable {name} not in scope"
                                 )
                             });
-                            format!("@as(usize, @intCast(({rendered}).int))")
+                            format!("({rendered}).int")
                         }
                     }
                     _ => panic!(
@@ -1782,11 +1823,18 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let right = self.guard(right);
                 binary_operator(*operator, &left, &right)
             }
-            crate::ast::ClauseGuard::Var { name, .. } => self
-                .scope
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| panic!("zig codegen: guard variable {name} not in scope")),
+            crate::ast::ClauseGuard::Var { name, .. } => {
+                let rendered = self
+                    .scope
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("zig codegen: guard variable {name} not in scope"));
+                // Guard operands feed consuming helpers (eq, tupleField...),
+                // so each use takes its own reference like any other use.
+                // Guards are branchy, so bindings here are never
+                // move-approved and the dup is always correct.
+                format!("P.dup({rendered})")
+            }
             crate::ast::ClauseGuard::TupleIndex { tuple, index, .. } => {
                 format!("P.tupleField({}, {index})", self.guard(tuple))
             }
@@ -1812,7 +1860,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             Constant::Int { int_value, .. } => format!("P.intValue({int_value})"),
             Constant::Float { value, .. } => format!("P.floatValue({value})"),
             Constant::String { value, .. } => {
-                format!("P.stringValue(\"{}\")", zig_string_contents(value))
+                format!("P.copyString(\"{}\")", zig_string_contents(value))
             }
             Constant::Tuple { elements, .. } => {
                 let elements = elements
@@ -1887,10 +1935,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         default: &str,
         indent: &str,
     ) -> String {
-        match message {
+        // Messages evaluate only on the failure path.
+        let saved_barrier = self.reuse_barrier;
+        self.reuse_barrier += 1;
+        let result = match message {
             Some(message) => format!("({}).string", self.expression(message, indent)),
             None => format!("\"{default}\""),
-        }
+        };
+        self.reuse_barrier = saved_barrier;
+        result
     }
 
     fn variable(&mut self, name: &EcoString, variant: &ValueConstructorVariant) -> String {
@@ -2375,7 +2428,9 @@ fn expression_uses(
             arguments,
             ..
         } => {
-            expression_uses(name, updated_record, branchy, summary);
+            // Treated as branchy: with every field explicit the generated
+            // code never renders this reference, so a move here would leak.
+            expression_uses(name, updated_record, true, summary);
             expression_uses(name, constructor, branchy, summary);
             for argument in arguments {
                 expression_uses(name, &argument.value, branchy, summary);

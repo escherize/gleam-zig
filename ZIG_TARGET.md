@@ -24,16 +24,21 @@ future FFI package's job, the way `gleam_javascript` wraps promises.
   plus conservative last-use moves plus FBIP cons-cell reuse
   (`list.map` mutates in place when the list is unshared). The generated
   binary leak-checks itself on exit during development.
-- **Verified**: the [language tour](https://tour.gleam.run) corpus
-  (60/63 lessons; 2 have no main function, 1 needs bit arrays) and 61
-  rosetta-code programs produce output identical to the JavaScript
-  target, leak-clean. 6,180 compiler tests pass.
+- **Verified**: the [language tour](https://tour.gleam.run) corpus and
+  the rosetta-code corpus — 129 programs passing, 0 failing — produce
+  output identical to the JavaScript target, leak-clean, re-checked by
+  CI on every push. 6,180 compiler tests pass.
+- **Concurrency**: [gleam_native](https://github.com/escherize/gleam-zig-native)
+  provides OS threads (values deep-copied across the boundary), sleep,
+  monotonic time and blocking TCP.
 - **Stdlib**: a [forked gleam_stdlib](https://github.com/escherize/gleam-zig-stdlib)
   implements the FFI for io, int, float, string, string_tree, dict and
   bit_array. Modules that are pure Gleam work as-is. File I/O comes from
   a [forked simplifile](https://github.com/escherize/gleam-zig-simplifile).
 - **Native binaries**: `gleam export zig-executable` produces a
-  ReleaseFast standalone executable (~400KB for a small CLI). Debug
+  ReleaseFast standalone executable (~400KB for a small CLI), with
+  `--target-triple` for cross-compilation (verified: x86_64-linux,
+  aarch64-linux, x86_64-windows, aarch64-macos from one machine). Debug
   builds (`gleam run`) leak-check on exit; release builds swap in the
   fast allocator and compile the check out.
 

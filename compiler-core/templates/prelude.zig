@@ -5,7 +5,8 @@
 //
 // Values use a uniform tagged-union representation, mirroring the dynamic
 // representation of the JavaScript target. Memory is reference counted
-// (Perceus phase 1: naive counting, no reuse or borrowing yet).
+// (Perceus: naive counting plus compiler-inserted last-use moves and
+// cons-cell reuse; borrowing inference is future work).
 //
 // Ownership protocol (matches the code generator):
 // - Every helper that takes Value arguments CONSUMES them (takes over one
@@ -547,6 +548,7 @@ pub fn deepCopy(value: Value) Value {
             return result;
         },
         .tuple => |t| {
+            if (t.len == 0) return value;
             const copied = allocValueSlice(t.len);
             for (t, 0..) |element, index| copied[index] = deepCopy(element);
             return Value{ .tuple = copied };
@@ -608,24 +610,40 @@ pub fn baBuilder() BitArrayBuilder {
 }
 
 /// Consumes the value. Writes `bits` (a multiple of 8) of the integer.
+/// Segments wider than 64 bits sign-extend (the value representation is
+/// i64; other targets would carry a bignum here).
 pub fn baAddInt(builder: *BitArrayBuilder, value: Value, bits: usize, little: bool) void {
     const byte_count = bits / 8;
-    var v: u64 = @bitCast(value.int);
-    var buffer: [8]u8 = undefined;
+    var v: i64 = value.int;
+    const start = builder.bytes.items.len;
+    builder.bytes.resize(allocator, start + byte_count) catch @panic("out of memory");
+    const out = builder.bytes.items[start..];
     var index: usize = 0;
     while (index < byte_count) : (index += 1) {
+        const byte: u8 = @truncate(@as(u64, @bitCast(v)));
         if (little) {
-            buffer[index] = @truncate(v);
+            out[index] = byte;
         } else {
-            buffer[byte_count - 1 - index] = @truncate(v);
+            out[byte_count - 1 - index] = byte;
         }
+        // Arithmetic shift keeps the sign fill for wide segments.
         v >>= 8;
     }
-    builder.append(buffer[0..byte_count]);
 }
 
 /// Consumes the value.
 pub fn baAddFloat(builder: *BitArrayBuilder, value: Value, bits: usize, little: bool) void {
+    if (bits == 16) {
+        const as16: f16 = @floatCast(value.float);
+        var raw: u16 = @bitCast(as16);
+        var buffer: [2]u8 = undefined;
+        for (0..2) |index| {
+            if (little) buffer[index] = @truncate(raw) else buffer[1 - index] = @truncate(raw);
+            raw >>= 8;
+        }
+        builder.append(&buffer);
+        return;
+    }
     if (bits == 32) {
         const as32: f32 = @floatCast(value.float);
         var raw: u32 = @bitCast(as32);
@@ -693,19 +711,24 @@ pub fn baBitCount(value: Value) usize {
     return bits;
 }
 
-pub fn baBitsToBytes(bits: usize) usize {
-    if (bits % 8 != 0) @panic("non-byte-aligned bit array segments are not supported yet");
-    return bits / 8;
+/// Bits-to-bytes for pattern sizes; negative or misaligned values yield
+/// -1, which the byte reader rejects (match failure).
+pub fn baBitsToBytes(bits: i64) i64 {
+    if (bits < 0 or @rem(bits, 8) != 0) return -1;
+    return @divTrunc(bits, 8);
 }
 
 pub fn baReadInt(
     matcher: *BitArrayMatcher,
-    bits: usize,
+    bits_raw: i64,
     signed: bool,
     little: bool,
     slot: usize,
 ) bool {
-    if (bits % 8 != 0) @panic("non-byte-aligned bit array segments are not supported yet");
+    // A negative or misaligned runtime size fails the match, as on the
+    // other targets.
+    if (bits_raw < 0 or @rem(bits_raw, 8) != 0) return false;
+    const bits: usize = @intCast(bits_raw);
     const byte_count = bits / 8;
     if (matcher.cursor + byte_count > matcher.data.len) return false;
     var raw: u64 = 0;
@@ -714,7 +737,7 @@ pub fn baReadInt(
         const byte = if (little) view[byte_count - 1 - index] else view[index];
         raw = (raw << 8) | byte;
     }
-    if (signed and byte_count < 8 and byte_count > 0) {
+    if (signed and bits < 64 and byte_count > 0) {
         const shift: u6 = @intCast(64 - bits);
         raw = @bitCast(@as(i64, @bitCast(raw << shift)) >> shift);
     }
@@ -723,7 +746,9 @@ pub fn baReadInt(
     return true;
 }
 
-pub fn baReadFloat(matcher: *BitArrayMatcher, bits: usize, little: bool, slot: usize) bool {
+pub fn baReadFloat(matcher: *BitArrayMatcher, bits_raw: i64, little: bool, slot: usize) bool {
+    if (bits_raw < 0 or @rem(bits_raw, 8) != 0) return false;
+    const bits: usize = @intCast(bits_raw);
     const byte_count = bits / 8;
     if (matcher.cursor + byte_count > matcher.data.len) return false;
     var raw: u64 = 0;
@@ -732,10 +757,11 @@ pub fn baReadFloat(matcher: *BitArrayMatcher, bits: usize, little: bool, slot: u
         const byte = if (little) view[byte_count - 1 - index] else view[index];
         raw = (raw << 8) | byte;
     }
-    const value: f64 = if (bits == 32)
-        @floatCast(@as(f32, @bitCast(@as(u32, @truncate(raw)))))
-    else
-        @bitCast(raw);
+    const value: f64 = switch (bits) {
+        16 => @floatCast(@as(f16, @bitCast(@as(u16, @truncate(raw))))),
+        32 => @floatCast(@as(f32, @bitCast(@as(u32, @truncate(raw))))),
+        else => @bitCast(raw),
+    };
     matcher.ints[slot] = @bitCast(value);
     matcher.cursor += byte_count;
     return true;
@@ -754,7 +780,9 @@ pub fn baReadUtf8Codepoint(matcher: *BitArrayMatcher, slot: usize) bool {
 }
 
 /// Fixed-size bytes segment; records a mark for the binding.
-pub fn baReadBytes(matcher: *BitArrayMatcher, byte_count: usize, slot: usize) bool {
+pub fn baReadBytes(matcher: *BitArrayMatcher, byte_count_raw: i64, slot: usize) bool {
+    if (byte_count_raw < 0) return false;
+    const byte_count: usize = @intCast(byte_count_raw);
     if (matcher.cursor + byte_count > matcher.data.len) return false;
     matcher.marks[slot] = .{ matcher.cursor, byte_count };
     matcher.cursor += byte_count;
@@ -890,6 +918,11 @@ pub fn notEq(a: Value, b: Value) Value {
 
 /// Consumes both operands.
 pub fn concatenate(a: Value, b: Value) Value {
+    if (a.string.len + b.string.len == 0) {
+        drop(a);
+        drop(b);
+        return Value{ .string = &.{} };
+    }
     const out = allocString(a.string.len + b.string.len);
     @memcpy(out[0..a.string.len], a.string);
     @memcpy(out[a.string.len..], b.string);
