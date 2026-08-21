@@ -123,25 +123,45 @@ pub fn module(
     // borrowable; boxed parameters qualify when every occurrence is the
     // container of a field access. The public name keeps the owned
     // convention through a wrapper.
-    // Fixpoint: a parameter passed into an already-borrowed position is
-    // itself a borrowing use, so signatures grow until stable (flags only
-    // ever flip owned -> borrowed as the map grows, so this terminates).
-    let mut borrowed_signatures: HashMap<EcoString, Vec<bool>> = HashMap::new();
-    loop {
-        let mut changed = false;
-        for function in &module.definitions.functions {
+    // Greatest fixpoint: every candidate starts fully borrowed and flags
+    // are removed until stable, so self- and mutually-recursive calls can
+    // justify each other's borrows. This is sound because call frames
+    // nest — a chain of borrowed passes always sits inside the liveness
+    // of the outermost owner (the wrapper or an owned call-site
+    // temporary), which is the one place the reference is dropped.
+    // Recomputing against a map that only ever shrinks can only clear
+    // flags, so the descent terminates.
+    let candidates: Vec<&crate::ast::TypedFunction> = module
+        .definitions
+        .functions
+        .iter()
+        .filter(|function| {
             let Some((_, name)) = &function.name else {
-                continue;
+                return false;
             };
-            if function.external_zig.is_some()
-                || function.body.is_empty()
-                || !function.implementations.supports(crate::build::Target::Zig)
-                || native_signatures.contains_key(name)
-                || function.arguments.is_empty()
+            !function.external_zig.is_some()
+                && !function.body.is_empty()
+                && function.implementations.supports(crate::build::Target::Zig)
+                && !native_signatures.contains_key(name)
+                && !function.arguments.is_empty()
                 // Tail-call loops reassign their parameters with owned
                 // values; mixing conventions there is not worth it.
-                || body_has_tail_self_call(&function.body, name)
-            {
+                && !body_has_tail_self_call(&function.body, name)
+        })
+        .collect();
+    let mut borrowed_signatures: HashMap<EcoString, Vec<bool>> = candidates
+        .iter()
+        .map(|function| {
+            let (_, name) = function.name.as_ref().expect("filtered");
+            (name.clone(), vec![true; function.arguments.len()])
+        })
+        .collect();
+    loop {
+        let mut changed = false;
+        for function in &candidates {
+            let (_, name) = function.name.as_ref().expect("filtered");
+            if !borrowed_signatures.contains_key(name) {
+                // Removed in an earlier round; the map only shrinks.
                 continue;
             }
             let context = BorrowContext {
@@ -166,8 +186,9 @@ pub fn module(
                 })
                 .collect();
             // A second ABI only pays when a boxed parameter is borrowed;
-            // the map is exactly the emit set, so transitive credit is
-            // only ever taken from callees that really have the ABI.
+            // the map is exactly the emit set, so credit is only ever
+            // taken from callees that really have the ABI. A removal here
+            // cascades through the loop like any other cleared flag.
             let worthwhile = function
                 .arguments
                 .iter()
@@ -175,7 +196,10 @@ pub fn module(
                 .any(|(argument, borrowed)| {
                     *borrowed && scalar_kind(&argument.type_).is_none()
                 });
-            if worthwhile && borrowed_signatures.get(name) != Some(&flags) {
+            if !worthwhile {
+                let _ = borrowed_signatures.remove(name);
+                changed = true;
+            } else if borrowed_signatures.get(name) != Some(&flags) {
                 let _ = borrowed_signatures.insert(name.clone(), flags);
                 changed = true;
             }
@@ -2180,10 +2204,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         // place, bindings dup out of it, and nothing is dropped. Borrowed
         // subjects never arm reuse (the case does not own the cell).
         let mut owned_subjects = Vec::new();
+        let mut subject_borrowed = Vec::new();
         for subject in subjects {
             if let Some(local) = self.borrowable_local(subject) {
                 if !self.raw_bindings.contains_key(&local) {
                     subject_names.push(local);
+                    subject_borrowed.push(true);
                     continue;
                 }
             }
@@ -2192,6 +2218,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             out.push_str(&format!("{indent}const {rendered} = {value};\n"));
             owned_subjects.push(rendered.clone());
             subject_names.push(rendered);
+            subject_borrowed.push(false);
         }
         let all_subjects_owned = owned_subjects.len() == subject_names.len();
 
@@ -2207,11 +2234,20 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let mut setup = Vec::new();
                 let mut conditions = Vec::new();
                 let mut bindings = Vec::new();
-                for (pattern, subject) in multi_pattern.iter().zip(&subject_names) {
+                for ((pattern, subject), from_borrowed) in multi_pattern
+                    .iter()
+                    .zip(&subject_names)
+                    .zip(&subject_borrowed)
+                {
                     let compiled = self.pattern(pattern, subject);
                     setup.extend(compiled.setup);
                     conditions.extend(compiled.conditions);
-                    bindings.extend(compiled.bindings);
+                    bindings.extend(
+                        compiled
+                            .bindings
+                            .into_iter()
+                            .map(|binding| (binding, *from_borrowed)),
+                    );
                 }
 
                 let mut clause_body = String::new();
@@ -2226,19 +2262,43 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 }
                 let mut bound = Vec::new();
                 let mut binding_text = String::new();
-                // Pattern bindings with a single straight-line use in the
-                // body transfer their reference there (armed after the
-                // guard; a failed guard still drops everything bound).
+                // Pattern bindings out of a BORROWED subject whose every
+                // body use is itself a borrow carry no reference at all:
+                // the subject outlives the clause, so the binding reads
+                // it in place — no dup, no drop, in no drop list.
+                // Otherwise, a single straight-line use transfers the
+                // reference there (armed after the guard; a failed guard
+                // still drops everything bound).
                 let mut moved_bound = Vec::new();
-                for (name, path, owned) in bindings {
+                for ((name, path, owned), from_borrowed) in bindings {
+                    let borrow_binding = !owned && from_borrowed && {
+                        let context = BorrowContext {
+                            module_name: &self.module.module_name,
+                            borrowed: &self.module.borrowed_signatures,
+                        };
+                        // A binding with no rendered use at all must keep
+                        // the owned path (its exit drop is its zig use).
+                        let mut summary = UseSummary::default();
+                        expression_uses(&name, &clause.then, false, &mut summary);
+                        let guard_mentions = clause.guard.as_ref().is_some_and(|guard| {
+                            let mut names = BTreeSet::new();
+                            guard_variables(guard, &mut names);
+                            names.contains(&name)
+                        });
+                        (summary.count > 0 || guard_mentions)
+                            && expression_borrow_only(&name, &clause.then, &context)
+                    };
                     let rendered = self.bind(&name);
-                    let path = if owned {
+                    let path = if owned || borrow_binding {
                         path
                     } else {
                         format!("P.dup({path})")
                     };
                     binding_text
                         .push_str(&format!("{inner_indent}const {rendered} = {path};\n"));
+                    if borrow_binding {
+                        continue;
+                    }
                     let mut summary = UseSummary::default();
                     expression_uses(&name, &clause.then, false, &mut summary);
                     if summary.count == 1
