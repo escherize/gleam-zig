@@ -123,45 +123,65 @@ pub fn module(
     // borrowable; boxed parameters qualify when every occurrence is the
     // container of a field access. The public name keeps the owned
     // convention through a wrapper.
+    // Fixpoint: a parameter passed into an already-borrowed position is
+    // itself a borrowing use, so signatures grow until stable (flags only
+    // ever flip owned -> borrowed as the map grows, so this terminates).
     let mut borrowed_signatures: HashMap<EcoString, Vec<bool>> = HashMap::new();
-    for function in &module.definitions.functions {
-        let Some((_, name)) = &function.name else {
-            continue;
-        };
-        if function.external_zig.is_some()
-            || function.body.is_empty()
-            || !function.implementations.supports(crate::build::Target::Zig)
-            || native_signatures.contains_key(name)
-            || function.arguments.is_empty()
-            // Tail-call loops reassign their parameters with owned
-            // values; mixing conventions there is not worth it.
-            || body_has_tail_self_call(&function.body, name)
-        {
-            continue;
+    loop {
+        let mut changed = false;
+        for function in &module.definitions.functions {
+            let Some((_, name)) = &function.name else {
+                continue;
+            };
+            if function.external_zig.is_some()
+                || function.body.is_empty()
+                || !function.implementations.supports(crate::build::Target::Zig)
+                || native_signatures.contains_key(name)
+                || function.arguments.is_empty()
+                // Tail-call loops reassign their parameters with owned
+                // values; mixing conventions there is not worth it.
+                || body_has_tail_self_call(&function.body, name)
+            {
+                continue;
+            }
+            let context = BorrowContext {
+                module_name: &module.name,
+                borrowed: &borrowed_signatures,
+            };
+            let flags: Vec<bool> = function
+                .arguments
+                .iter()
+                .map(|argument| match argument.names.get_variable_name() {
+                    // A discarded parameter is never used; the caller
+                    // simply keeps its reference.
+                    None => true,
+                    Some(parameter_name) => {
+                        scalar_kind(&argument.type_).is_some()
+                            || param_uses_are_borrow_only(
+                                parameter_name,
+                                &function.body,
+                                &context,
+                            )
+                    }
+                })
+                .collect();
+            // A second ABI only pays when a boxed parameter is borrowed;
+            // the map is exactly the emit set, so transitive credit is
+            // only ever taken from callees that really have the ABI.
+            let worthwhile = function
+                .arguments
+                .iter()
+                .zip(&flags)
+                .any(|(argument, borrowed)| {
+                    *borrowed && scalar_kind(&argument.type_).is_none()
+                });
+            if worthwhile && borrowed_signatures.get(name) != Some(&flags) {
+                let _ = borrowed_signatures.insert(name.clone(), flags);
+                changed = true;
+            }
         }
-        let flags: Vec<bool> = function
-            .arguments
-            .iter()
-            .map(|argument| match argument.names.get_variable_name() {
-                // A discarded parameter is never used; the caller simply
-                // keeps its reference.
-                None => true,
-                Some(parameter_name) => {
-                    scalar_kind(&argument.type_).is_some()
-                        || param_uses_are_borrow_only(parameter_name, &function.body)
-                }
-            })
-            .collect();
-        // A second ABI only pays when a boxed parameter is borrowed.
-        let worthwhile = function
-            .arguments
-            .iter()
-            .zip(&flags)
-            .any(|(argument, borrowed)| {
-                *borrowed && scalar_kind(&argument.type_).is_none()
-            });
-        if worthwhile {
-            let _ = borrowed_signatures.insert(name.clone(), flags);
+        if !changed {
+            break;
         }
     }
 
@@ -2052,12 +2072,25 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     ) -> String {
         let mut out = String::new();
         let mut subject_names = Vec::new();
+        // Owned subjects (dropped at every clause exit); a subject that is
+        // a live local is borrowed instead: pattern tests read it in
+        // place, bindings dup out of it, and nothing is dropped. Borrowed
+        // subjects never arm reuse (the case does not own the cell).
+        let mut owned_subjects = Vec::new();
         for subject in subjects {
+            if let Some(local) = self.borrowable_local(subject) {
+                if !self.raw_bindings.contains_key(&local) {
+                    subject_names.push(local);
+                    continue;
+                }
+            }
             let value = self.expression(subject, indent);
             let rendered = self.fresh_name("s");
             out.push_str(&format!("{indent}const {rendered} = {value};\n"));
+            owned_subjects.push(rendered.clone());
             subject_names.push(rendered);
         }
+        let all_subjects_owned = owned_subjects.len() == subject_names.len();
 
         for clause in clauses {
             let mut multi_patterns = vec![&clause.pattern];
@@ -2121,7 +2154,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 // (a failed guard leaves the subject owned by the case),
                 // and the subject is then excluded from this clause's
                 // exit drops.
-                let reuse_kind = if subjects.len() == 1 && self.reuse_token.is_none() {
+                let reuse_kind = if subjects.len() == 1
+                    && all_subjects_owned
+                    && self.reuse_token.is_none()
+                {
                     clause_reuse_kind(clause)
                 } else {
                     None
@@ -2144,7 +2180,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     self.reuse_token = Some((token, kind, self.reuse_barrier));
                 }
                 let subject_drops: &[String] =
-                    if reuse_kind.is_some() { &[] } else { &subject_names };
+                    if reuse_kind.is_some() { &[] } else { &owned_subjects };
 
                 // Everything owned at the exit taken from this clause:
                 // clause bindings, the case subjects, and (in tail position)
@@ -3045,34 +3081,84 @@ fn expression_has_tail_self_call(expression: &TypedExpr, name: &EcoString) -> bo
     }
 }
 
-/// True when every occurrence of `name` in the body is the container of a
-/// field access — the shape a borrowed reference can serve. Conservative:
-/// any bare occurrence, any rebind of the same source name (shadowing is
-/// not tracked), any lambda mentioning it (the closure could outlive the
-/// call), and any guard use (guards feed consuming helpers) disqualify.
-fn param_uses_are_borrow_only(name: &EcoString, body: &[TypedStatement]) -> bool {
-    body.iter().all(|statement| statement_borrow_only(name, statement))
+/// Context for the borrow-only analysis: the module's name and the
+/// borrowed signatures inferred so far, so an occurrence passed into an
+/// already-borrowed parameter position counts as a borrow (the transitive
+/// case, resolved by fixpoint in `module`).
+struct BorrowContext<'a> {
+    module_name: &'a EcoString,
+    borrowed: &'a HashMap<EcoString, Vec<bool>>,
 }
 
-fn statement_borrow_only(name: &EcoString, statement: &TypedStatement) -> bool {
+impl BorrowContext<'_> {
+    /// The borrowed flags of a same-module callee, when the call is
+    /// saturated.
+    fn call_flags(&self, fun: &TypedExpr, argument_count: usize) -> Option<&Vec<bool>> {
+        let (module, name) = match fun {
+            TypedExpr::Var { constructor, .. } => match &constructor.variant {
+                ValueConstructorVariant::ModuleFn { name, module, .. } => (module, name),
+                _ => return None,
+            },
+            TypedExpr::ModuleSelect {
+                constructor: ModuleValueConstructor::Fn { module, name, .. },
+                ..
+            } => (module, name),
+            _ => return None,
+        };
+        if module != self.module_name {
+            return None;
+        }
+        self.borrowed
+            .get(name)
+            .filter(|flags| flags.len() == argument_count)
+    }
+}
+
+/// True when every occurrence of `name` in the body is a borrowing use: a
+/// field-access container, a case subject, or an argument in a borrowed
+/// parameter position of an already-borrowed same-module callee.
+/// Conservative: any bare occurrence, any rebind of the same source name
+/// (shadowing is not tracked), any lambda mentioning it (the closure
+/// could outlive the call), and any guard use (guards feed consuming
+/// helpers) disqualify.
+fn param_uses_are_borrow_only(
+    name: &EcoString,
+    body: &[TypedStatement],
+    context: &BorrowContext<'_>,
+) -> bool {
+    body.iter()
+        .all(|statement| statement_borrow_only(name, statement, context))
+}
+
+fn statement_borrow_only(
+    name: &EcoString,
+    statement: &TypedStatement,
+    context: &BorrowContext<'_>,
+) -> bool {
     match statement {
-        Statement::Expression(expression) => expression_borrow_only(name, expression),
+        Statement::Expression(expression) => {
+            expression_borrow_only(name, expression, context)
+        }
         Statement::Assignment(assignment) => {
             !pattern_binds(name, &assignment.pattern)
-                && expression_borrow_only(name, &assignment.value)
+                && expression_borrow_only(name, &assignment.value, context)
         }
-        Statement::Use(use_) => expression_borrow_only(name, &use_.call),
+        Statement::Use(use_) => expression_borrow_only(name, &use_.call, context),
         Statement::Assert(assert) => {
-            expression_borrow_only(name, &assert.value)
+            expression_borrow_only(name, &assert.value, context)
                 && assert
                     .message
                     .as_ref()
-                    .is_none_or(|message| expression_borrow_only(name, message))
+                    .is_none_or(|message| expression_borrow_only(name, message, context))
         }
     }
 }
 
-fn expression_borrow_only(name: &EcoString, expression: &TypedExpr) -> bool {
+fn expression_borrow_only(
+    name: &EcoString,
+    expression: &TypedExpr,
+    context: &BorrowContext<'_>,
+) -> bool {
     match expression {
         TypedExpr::Var {
             constructor,
@@ -3090,11 +3176,11 @@ fn expression_borrow_only(name: &EcoString, expression: &TypedExpr) -> bool {
         TypedExpr::RecordAccess { record, .. }
         | TypedExpr::PositionalAccess { record, .. } => match record.as_ref() {
             TypedExpr::Var { name: used, .. } if used == name => true,
-            other => expression_borrow_only(name, other),
+            other => expression_borrow_only(name, other, context),
         },
         TypedExpr::TupleIndex { tuple, .. } => match tuple.as_ref() {
             TypedExpr::Var { name: used, .. } if used == name => true,
-            other => expression_borrow_only(name, other),
+            other => expression_borrow_only(name, other, context),
         },
         // A lambda mentioning the name would capture a reference that can
         // outlive the borrowed call.
@@ -3112,42 +3198,65 @@ fn expression_borrow_only(name: &EcoString, expression: &TypedExpr) -> bool {
         | TypedExpr::Invalid { .. } => true,
         TypedExpr::Block { statements, .. } => statements
             .iter()
-            .all(|statement| statement_borrow_only(name, statement)),
+            .all(|statement| statement_borrow_only(name, statement, context)),
         TypedExpr::Pipeline {
             first_value,
             assignments,
             finally,
             ..
         } => {
-            expression_borrow_only(name, &first_value.value)
+            expression_borrow_only(name, &first_value.value, context)
                 && assignments
                     .iter()
-                    .all(|(assignment, _)| expression_borrow_only(name, &assignment.value))
-                && expression_borrow_only(name, finally)
+                    .all(|(assignment, _)| expression_borrow_only(name, &assignment.value, context))
+                && expression_borrow_only(name, finally, context)
         }
         TypedExpr::List { elements, tail, .. } => {
             elements
                 .iter()
-                .all(|element| expression_borrow_only(name, element))
+                .all(|element| expression_borrow_only(name, element, context))
                 && tail
                     .as_ref()
-                    .is_none_or(|tail| expression_borrow_only(name, tail))
+                    .is_none_or(|tail| expression_borrow_only(name, tail, context))
         }
         TypedExpr::Call { fun, arguments, .. } => {
-            expression_borrow_only(name, fun)
-                && arguments
-                    .iter()
-                    .all(|argument| expression_borrow_only(name, &argument.value))
+            // Transitive borrow: the name as an argument in a borrowed
+            // position of an already-borrowed same-module callee.
+            let callee_flags = context.call_flags(fun, arguments.len());
+            expression_borrow_only(name, fun, context)
+                && arguments.iter().enumerate().all(|(index, argument)| {
+                    match &argument.value {
+                        TypedExpr::Var {
+                            constructor,
+                            name: used,
+                            ..
+                        } if used == name
+                            && matches!(
+                                constructor.variant,
+                                ValueConstructorVariant::LocalVariable { .. }
+                            ) =>
+                        {
+                            callee_flags
+                                .is_some_and(|flags| flags.get(index) == Some(&true))
+                        }
+                        other => expression_borrow_only(name, other, context),
+                    }
+                })
         }
         TypedExpr::BinOp { left, right, .. } => {
-            expression_borrow_only(name, left) && expression_borrow_only(name, right)
+            expression_borrow_only(name, left, context) && expression_borrow_only(name, right, context)
         }
         TypedExpr::Case {
             subjects, clauses, ..
         } => {
+            // A subject position is borrow-safe: the case borrows live
+            // locals in place (pattern tests read, bindings dup).
             subjects
                 .iter()
-                .all(|subject| expression_borrow_only(name, subject))
+                .all(|subject| match subject {
+                    TypedExpr::Var { name: used, .. } if used == name => true,
+                    other => expression_borrow_only(name, other, context),
+                })
                 && clauses.iter().all(|clause| {
                     let mut patterns = vec![&clause.pattern];
                     patterns.extend(clause.alternative_patterns.iter());
@@ -3161,15 +3270,15 @@ fn expression_borrow_only(name: &EcoString, expression: &TypedExpr) -> bool {
                     });
                     !rebinds
                         && !guard_mentions
-                        && expression_borrow_only(name, &clause.then)
+                        && expression_borrow_only(name, &clause.then, context)
                 })
         }
         TypedExpr::Tuple { elements, .. } => elements
             .iter()
-            .all(|element| expression_borrow_only(name, element)),
+            .all(|element| expression_borrow_only(name, element, context)),
         TypedExpr::Todo { message, .. } | TypedExpr::Panic { message, .. } => message
             .as_ref()
-            .is_none_or(|message| expression_borrow_only(name, message)),
+            .is_none_or(|message| expression_borrow_only(name, message, context)),
         TypedExpr::Echo {
             expression: inner,
             message,
@@ -3177,10 +3286,10 @@ fn expression_borrow_only(name: &EcoString, expression: &TypedExpr) -> bool {
         } => {
             inner
                 .as_ref()
-                .is_none_or(|inner| expression_borrow_only(name, inner))
+                .is_none_or(|inner| expression_borrow_only(name, inner, context))
                 && message
                     .as_ref()
-                    .is_none_or(|message| expression_borrow_only(name, message))
+                    .is_none_or(|message| expression_borrow_only(name, message, context))
         }
         TypedExpr::RecordUpdate {
             updated_record,
@@ -3188,21 +3297,21 @@ fn expression_borrow_only(name: &EcoString, expression: &TypedExpr) -> bool {
             arguments,
             ..
         } => {
-            expression_borrow_only(name, updated_record)
-                && expression_borrow_only(name, constructor)
+            expression_borrow_only(name, updated_record, context)
+                && expression_borrow_only(name, constructor, context)
                 && arguments
                     .iter()
-                    .all(|argument| expression_borrow_only(name, &argument.value))
+                    .all(|argument| expression_borrow_only(name, &argument.value, context))
         }
         TypedExpr::NegateBool { value, .. } | TypedExpr::NegateInt { value, .. } => {
-            expression_borrow_only(name, value)
+            expression_borrow_only(name, value, context)
         }
         TypedExpr::BitArray { segments, .. } => segments.iter().all(|segment| {
-            expression_borrow_only(name, &segment.value)
+            expression_borrow_only(name, &segment.value, context)
                 && segment.options.iter().all(|option| {
                     option
                         .value()
-                        .is_none_or(|size| expression_borrow_only(name, size))
+                        .is_none_or(|size| expression_borrow_only(name, size, context))
                 })
         }),
     }

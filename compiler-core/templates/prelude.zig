@@ -220,6 +220,21 @@ fn stringWordCount(byte_length: usize) usize {
     return 1 + (byte_length + 7) / 8;
 }
 
+// The string header word packs the reference count in the low 32 bits
+// and, when the allocation is larger than the length implies (a buffer
+// grown for in-place append), the allocated word count in the high 32.
+// Zero high bits mean the exact stringWordCount(len) fit.
+
+fn stringRefCount(header: u64) u32 {
+    return @truncate(header);
+}
+
+/// The allocated size in words of a string's buffer.
+fn stringAllocWords(payload: []const u8) usize {
+    const capacity = stringRc(payload).* >> 32;
+    return if (capacity != 0) capacity else stringWordCount(payload.len);
+}
+
 fn allocString(byte_length: usize) []u8 {
     const word_count = stringWordCount(byte_length);
     if (poolPopString(word_count)) |recycled| {
@@ -238,7 +253,7 @@ fn stringRc(payload: []const u8) *u64 {
 
 fn freeString(payload: []const u8) void {
     const base: [*]u64 = @alignCast(@as([*]u64, @ptrFromInt(@intFromPtr(payload.ptr))) - 1);
-    const word_count = stringWordCount(payload.len);
+    const word_count = stringAllocWords(payload);
     if (poolPushString(base, word_count)) return;
     rc_allocator().free(base[0..word_count]);
 }
@@ -277,7 +292,7 @@ pub fn drop(value: Value) void {
         .string => |s| if (s.len != 0) {
             const rc = stringRc(s);
             rc.* -= 1;
-            if (rc.* == 0) freeString(s);
+            if (stringRefCount(rc.*) == 0) freeString(s);
         },
         .list => |cell| dropList(cell),
         .tuple => |t| if (t.len != 0) {
@@ -312,7 +327,7 @@ pub fn drop(value: Value) void {
                 if (b.buffer.len != 0) {
                     const rc = stringRc(b.buffer);
                     rc.* -= 1;
-                    if (rc.* == 0) freeString(b.buffer);
+                    if (stringRefCount(rc.*) == 0) freeString(b.buffer);
                 }
                 rc_allocator().destroy(mutable);
             }
@@ -1093,12 +1108,43 @@ pub fn notEq(a: Value, b: Value) Value {
 
 /// Consumes both operands.
 pub fn concatenate(a: Value, b: Value) Value {
-    if (a.string.len + b.string.len == 0) {
-        drop(a);
+    if (b.string.len == 0) {
         drop(b);
-        return Value{ .string = &.{} };
+        return a;
     }
-    const out = allocString(a.string.len + b.string.len);
+    if (a.string.len == 0) {
+        drop(a);
+        return b;
+    }
+    const total = a.string.len + b.string.len;
+    // An unshared left operand appends in place: the buffer grows by
+    // doubling (allocated size tracked in the header's high bits), so a
+    // left-associative `acc <> piece` chain is amortized linear instead
+    // of copying the accumulator on every step.
+    if (stringRefCount(stringRc(a.string).*) == 1) {
+        const base: [*]u64 = @alignCast(
+            @as([*]u64, @ptrFromInt(@intFromPtr(a.string.ptr))) - 1,
+        );
+        const have = stringAllocWords(a.string);
+        const need = stringWordCount(total);
+        if (need <= have) {
+            const out = std.mem.sliceAsBytes(base[1..have])[0..total];
+            @memcpy(out[a.string.len..], b.string);
+            base[0] = 1 | (@as(u64, have) << 32);
+            drop(b);
+            return Value{ .string = out };
+        }
+        var new_words = have;
+        while (new_words < need) new_words *= 2;
+        const grown = rc_allocator().realloc(base[0..have], new_words) catch
+            @panic("out of memory");
+        grown[0] = 1 | (@as(u64, new_words) << 32);
+        const out = std.mem.sliceAsBytes(grown[1..])[0..total];
+        @memcpy(out[a.string.len..], b.string);
+        drop(b);
+        return Value{ .string = out };
+    }
+    const out = allocString(total);
     @memcpy(out[0..a.string.len], a.string);
     @memcpy(out[a.string.len..], b.string);
     drop(a);
