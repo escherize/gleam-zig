@@ -2226,6 +2226,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 }
                 let mut bound = Vec::new();
                 let mut binding_text = String::new();
+                // Pattern bindings with a single straight-line use in the
+                // body transfer their reference there (armed after the
+                // guard; a failed guard still drops everything bound).
+                let mut moved_bound = Vec::new();
                 for (name, path, owned) in bindings {
                     let rendered = self.bind(&name);
                     let path = if owned {
@@ -2235,12 +2239,20 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     };
                     binding_text
                         .push_str(&format!("{inner_indent}const {rendered} = {path};\n"));
+                    let mut summary = UseSummary::default();
+                    expression_uses(&name, &clause.then, false, &mut summary);
+                    if summary.count == 1
+                        && !summary.under_branch_or_lambda
+                        && !self.raw_bindings.contains_key(&rendered)
+                    {
+                        moved_bound.push(rendered.clone());
+                    }
                     bound.push(rendered);
                 }
 
                 let mut guard_and_body = String::new();
                 if let Some(guard) = &clause.guard {
-                    let guard = self.guard(guard);
+                    let guard = self.guard_condition(guard);
                     // A failed guard falls through to the next clause; the
                     // clause bindings it took must be released first.
                     let mut on_fail = String::new();
@@ -2248,7 +2260,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         on_fail.push_str(&format!("P.drop({binding}); "));
                     }
                     guard_and_body.push_str(&format!(
-                        "{inner_indent}if (!(({guard}).bool)) {{ {on_fail}break :{clause_label}; }}\n"
+                        "{inner_indent}if (!({guard})) {{ {on_fail}break :{clause_label}; }}\n"
                     ));
                 }
                 // Per-clause last use: after the guard has passed (a
@@ -2264,6 +2276,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         guard_and_body
                             .push_str(&format!("{inner_indent}P.drop({binding});\n"));
                     }
+                }
+                // Single-use pattern bindings transfer at their use.
+                for binding in &moved_bound {
+                    let _ = self.moved.insert(binding.clone());
                 }
 
                 // FBIP reuse: hand the matched allocation (cons cell,
@@ -2301,9 +2317,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     if reuse_kind.is_some() { &[] } else { &owned_subjects };
 
                 // Everything owned at the exit taken from this clause:
-                // clause bindings, the case subjects, and (in tail position)
-                // the enclosing scope's live bindings.
-                let exit_drops: Vec<String> = bound
+                // clause bindings (minus moved ones), the case subjects,
+                // and (in tail position) the enclosing scope's live
+                // bindings.
+                let kept_bound: Vec<String> = bound
+                    .iter()
+                    .filter(|binding| !moved_bound.contains(binding))
+                    .cloned()
+                    .collect();
+                let exit_drops: Vec<String> = kept_bound
                     .iter()
                     .chain(subject_drops)
                     .chain(pending_drops)
@@ -2323,7 +2345,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         let result = self.fresh_name("r");
                         guard_and_body
                             .push_str(&format!("{inner_indent}const {result} = {value};\n"));
-                        for binding in bound.iter().chain(subject_drops) {
+                        for binding in kept_bound.iter().chain(subject_drops) {
                             guard_and_body
                                 .push_str(&format!("{inner_indent}P.drop({binding});\n"));
                         }
@@ -2340,6 +2362,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     assert!(
                         !self.moved.contains(binding),
                         "zig codegen: per-clause move was not consumed by the clause body"
+                    );
+                }
+                for binding in &moved_bound {
+                    assert!(
+                        !self.moved.contains(binding),
+                        "zig codegen: pattern-binding move was not consumed by the clause body"
                     );
                 }
 
@@ -2813,6 +2841,197 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 .conditions
                 .push(format!("P.baAtEnd(&{matcher})"));
         }
+    }
+
+    /// A guard as a raw zig bool. Scalar comparisons and arithmetic
+    /// render unboxed (a guard like `n == 0` is a raw integer compare,
+    /// not a structural-equality call); anything else falls back to the
+    /// boxed helpers and reads `.bool` off the result.
+    fn guard_condition(&mut self, guard: &TypedClauseGuard) -> String {
+        use crate::ast::ClauseGuard;
+        match guard {
+            ClauseGuard::Block { value, .. } => self.guard_condition(value),
+            ClauseGuard::Not { expression, .. } => {
+                format!("!({})", self.guard_condition(expression))
+            }
+            ClauseGuard::BinaryOperator {
+                operator,
+                left,
+                right,
+                ..
+            } => match operator {
+                BinOp::And => format!(
+                    "({} and {})",
+                    self.guard_condition(left),
+                    self.guard_condition(right)
+                ),
+                BinOp::Or => format!(
+                    "({} or {})",
+                    self.guard_condition(left),
+                    self.guard_condition(right)
+                ),
+                BinOp::Eq | BinOp::NotEq => {
+                    let token = if *operator == BinOp::Eq { "==" } else { "!=" };
+                    match (self.guard_scalar(left), self.guard_scalar(right)) {
+                        (Some(left), Some(right)) => format!("({left} {token} {right})"),
+                        _ => format!("({}).bool", self.guard(guard)),
+                    }
+                }
+                BinOp::LtInt
+                | BinOp::LtEqInt
+                | BinOp::GtInt
+                | BinOp::GtEqInt
+                | BinOp::LtFloat
+                | BinOp::LtEqFloat
+                | BinOp::GtFloat
+                | BinOp::GtEqFloat => {
+                    let token = match operator {
+                        BinOp::LtInt | BinOp::LtFloat => "<",
+                        BinOp::LtEqInt | BinOp::LtEqFloat => "<=",
+                        BinOp::GtInt | BinOp::GtFloat => ">",
+                        _ => ">=",
+                    };
+                    match (self.guard_scalar(left), self.guard_scalar(right)) {
+                        (Some(left), Some(right)) => format!("({left} {token} {right})"),
+                        _ => format!("({}).bool", self.guard(guard)),
+                    }
+                }
+                _ => format!("({}).bool", self.guard(guard)),
+            },
+            _ => match self.guard_scalar(guard) {
+                // A bool-typed operand (variable, field) read raw.
+                Some(raw) => raw,
+                None => format!("({}).bool", self.guard(guard)),
+            },
+        }
+    }
+
+    /// A scalar-typed guard operand as a raw i64/f64/bool, borrowing
+    /// live bindings in place; None when unsupported (falls back boxed).
+    fn guard_scalar(&mut self, guard: &TypedClauseGuard) -> Option<String> {
+        use crate::ast::ClauseGuard;
+        let kind = scalar_kind(&guard.type_())?;
+        match guard {
+            ClauseGuard::Block { value, .. } => self.guard_scalar(value),
+            ClauseGuard::Not { expression, .. } => {
+                Some(format!("!({})", self.guard_scalar(expression)?))
+            }
+            ClauseGuard::Var { name, .. } => {
+                let rendered = self.scope.get(name)?.clone();
+                if self.raw_bindings.contains_key(&rendered) {
+                    Some(rendered)
+                } else {
+                    Some(format!("({rendered}).{}", kind.field()))
+                }
+            }
+            ClauseGuard::Constant(constant) => match constant {
+                Constant::Int { int_value, .. } => Some(format!("{int_value}")),
+                Constant::Float { value, .. } => Some(value.to_string()),
+                _ => None,
+            },
+            ClauseGuard::TupleIndex { tuple, index, .. } => {
+                let ClauseGuard::Var { name, .. } = tuple.as_ref() else {
+                    return None;
+                };
+                let rendered = self.scope.get(name)?.clone();
+                if self.raw_bindings.contains_key(&rendered) {
+                    return None;
+                }
+                Some(format!("(({rendered}).tuple[{index}]).{}", kind.field()))
+            }
+            ClauseGuard::FieldAccess {
+                container, index, ..
+            } => {
+                let index = (*index)?;
+                let ClauseGuard::Var { name, .. } = container.as_ref() else {
+                    return None;
+                };
+                let rendered = self.scope.get(name)?.clone();
+                if self.raw_bindings.contains_key(&rendered) {
+                    return None;
+                }
+                Some(format!(
+                    "(({rendered}).record.fields[{index}]).{}",
+                    kind.field()
+                ))
+            }
+            ClauseGuard::BinaryOperator {
+                operator,
+                left,
+                right,
+                ..
+            } => {
+                let token = match operator {
+                    BinOp::AddInt => "+%",
+                    BinOp::SubInt => "-%",
+                    BinOp::MultInt => "*%",
+                    BinOp::AddFloat => "+",
+                    BinOp::SubFloat => "-",
+                    BinOp::MultFloat => "*",
+                    BinOp::DivInt => {
+                        return Some(format!(
+                            "P.rawDivInt({}, {})",
+                            self.guard_scalar(left)?,
+                            self.guard_scalar(right)?
+                        ));
+                    }
+                    BinOp::RemainderInt => {
+                        return Some(format!(
+                            "P.rawRemInt({}, {})",
+                            self.guard_scalar(left)?,
+                            self.guard_scalar(right)?
+                        ));
+                    }
+                    BinOp::DivFloat => {
+                        return Some(format!(
+                            "P.rawDivFloat({}, {})",
+                            self.guard_scalar(left)?,
+                            self.guard_scalar(right)?
+                        ));
+                    }
+                    // Bool-producing comparisons and connectives inside a
+                    // scalar operand position.
+                    _ => return Some(self.guard_condition_scalar_only(guard)?),
+                };
+                Some(format!(
+                    "({} {token} {})",
+                    self.guard_scalar(left)?,
+                    self.guard_scalar(right)?
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// A bool-valued guard subtree rendered raw only when every operand
+    /// supports it; used for comparisons nested inside scalar operands.
+    fn guard_condition_scalar_only(&mut self, guard: &TypedClauseGuard) -> Option<String> {
+        use crate::ast::ClauseGuard;
+        let ClauseGuard::BinaryOperator {
+            operator,
+            left,
+            right,
+            ..
+        } = guard
+        else {
+            return None;
+        };
+        let token = match operator {
+            BinOp::And => "and",
+            BinOp::Or => "or",
+            BinOp::Eq => "==",
+            BinOp::NotEq => "!=",
+            BinOp::LtInt | BinOp::LtFloat => "<",
+            BinOp::LtEqInt | BinOp::LtEqFloat => "<=",
+            BinOp::GtInt | BinOp::GtFloat => ">",
+            BinOp::GtEqInt | BinOp::GtEqFloat => ">=",
+            _ => return None,
+        };
+        Some(format!(
+            "({} {token} {})",
+            self.guard_scalar(left)?,
+            self.guard_scalar(right)?
+        ))
     }
 
     fn guard(&mut self, guard: &TypedClauseGuard) -> String {
