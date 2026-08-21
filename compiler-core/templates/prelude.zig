@@ -106,7 +106,96 @@ pub const Closure = struct {
 /// Value slices (tuples, closure envs) and string buffers are allocated
 /// with one extra leading word holding the reference count.
 
+// Release-mode object pools. The dominant cost in hot numeric code is
+// allocator round-trips for tiny objects (a record + its field slice per
+// vector operation). Freed records, cons cells and small slices park in
+// threadlocal free lists for immediate reuse. Compiled out in Debug so
+// the leak-checking gate keeps exact alloc/free pairing.
+const pooling = !leak_checking;
+const max_pooled_slice = 8;
+
+threadlocal var record_pool: ?*Record = null;
+threadlocal var cons_pool: ?*Cons = null;
+threadlocal var slice_pools: [max_pooled_slice + 1]?[*]Value =
+    @splat(null);
+// String buffers pooled by word count (payload up to 56 bytes).
+const max_pooled_string_words = 8;
+threadlocal var string_pools: [max_pooled_string_words + 1]?[*]u64 =
+    @splat(null);
+
+fn poolPopString(words: usize) ?[]u64 {
+    if (!pooling or words < 2 or words > max_pooled_string_words) return null;
+    const base = string_pools[words] orelse return null;
+    const next = base[1];
+    string_pools[words] = if (next == 0) null else @ptrFromInt(next);
+    base[0] = 1;
+    return base[0..words];
+}
+
+fn poolPushString(base: [*]u64, words: usize) bool {
+    if (!pooling or words < 2 or words > max_pooled_string_words) return false;
+    base[1] = if (string_pools[words]) |head| @intFromPtr(head) else 0;
+    string_pools[words] = base;
+    return true;
+}
+
+fn poolPopRecord() ?*Record {
+    if (!pooling) return null;
+    const head = record_pool orelse return null;
+    // The next pointer hides in the retired struct's name field.
+    record_pool = @ptrFromInt(@intFromPtr(head.name.ptr));
+    if (head.name.len == 0) record_pool = null;
+    return head;
+}
+
+fn poolPushRecord(record: *Record) bool {
+    if (!pooling) return false;
+    record.name = if (record_pool) |next|
+        @as([*]const u8, @ptrCast(next))[0..1]
+    else
+        &.{};
+    record_pool = record;
+    return true;
+}
+
+fn poolPopCons() ?*Cons {
+    if (!pooling) return null;
+    const head = cons_pool orelse return null;
+    cons_pool = @constCast(head.tail);
+    return head;
+}
+
+fn poolPushCons(cell: *Cons) bool {
+    if (!pooling) return false;
+    cell.tail = cons_pool;
+    cons_pool = cell;
+    return true;
+}
+
+fn poolPopSlice(count: usize) ?[]Value {
+    if (!pooling or count == 0 or count > max_pooled_slice) return null;
+    const base = slice_pools[count] orelse return null;
+    // The next pointer hides in the first payload word.
+    const next: usize = @bitCast(base[1].int);
+    slice_pools[count] = if (next == 0) null else @ptrFromInt(next);
+    base[0] = Value{ .int = 1 };
+    return base[1 .. count + 1];
+}
+
+fn poolPushSlice(payload: []const Value) bool {
+    if (!pooling or payload.len == 0 or payload.len > max_pooled_slice) return false;
+    const base: [*]Value = @constCast(payload.ptr) - 1;
+    const next: usize = if (slice_pools[payload.len]) |head|
+        @intFromPtr(head)
+    else
+        0;
+    base[1] = Value{ .int = @bitCast(next) };
+    slice_pools[payload.len] = base;
+    return true;
+}
+
 fn allocValueSlice(count: usize) []Value {
+    if (poolPopSlice(count)) |recycled| return recycled;
     const words = rc_allocator().alloc(Value, count + 1) catch @panic("out of memory");
     words[0] = Value{ .int = 1 };
     return words[1..];
@@ -118,6 +207,7 @@ fn valueSliceRc(payload: []const Value) *i64 {
 }
 
 fn freeValueSlice(payload: []const Value) void {
+    if (poolPushSlice(payload)) return;
     const base: [*]Value = @constCast(payload.ptr) - 1;
     rc_allocator().free(base[0 .. payload.len + 1]);
 }
@@ -127,7 +217,11 @@ fn stringWordCount(byte_length: usize) usize {
 }
 
 fn allocString(byte_length: usize) []u8 {
-    const words = rc_allocator().alloc(u64, stringWordCount(byte_length)) catch
+    const word_count = stringWordCount(byte_length);
+    if (poolPopString(word_count)) |recycled| {
+        return std.mem.sliceAsBytes(recycled[1..])[0..byte_length];
+    }
+    const words = rc_allocator().alloc(u64, word_count) catch
         @panic("out of memory");
     words[0] = 1;
     return std.mem.sliceAsBytes(words[1..])[0..byte_length];
@@ -140,7 +234,9 @@ fn stringRc(payload: []const u8) *u64 {
 
 fn freeString(payload: []const u8) void {
     const base: [*]u64 = @alignCast(@as([*]u64, @ptrFromInt(@intFromPtr(payload.ptr))) - 1);
-    rc_allocator().free(base[0..stringWordCount(payload.len)]);
+    const word_count = stringWordCount(payload.len);
+    if (poolPushString(base, word_count)) return;
+    rc_allocator().free(base[0..word_count]);
 }
 
 /// Take an extra reference to a value. No-op for unboxed values.
@@ -194,7 +290,7 @@ pub fn drop(value: Value) void {
             if (mutable.rc == 0) {
                 for (r.fields) |field| drop(field);
                 if (r.fields.len != 0) freeValueSlice(r.fields);
-                rc_allocator().destroy(mutable);
+                if (!poolPushRecord(mutable)) rc_allocator().destroy(mutable);
             }
         },
         .closure => |c| if (c.env.len != 0) {
@@ -228,7 +324,7 @@ fn dropList(head: ?*const Cons) void {
         if (mutable.rc != 0) return;
         drop(c.head);
         const next = c.tail;
-        rc_allocator().destroy(mutable);
+        if (!poolPushCons(mutable)) rc_allocator().destroy(mutable);
         cell = next;
     }
 }
@@ -283,7 +379,8 @@ pub fn listValue(cell: ?*const Cons) Value {
 
 /// Consumes head and tail.
 pub fn cons(head: Value, tail: Value) Value {
-    const cell = rc_allocator().create(Cons) catch @panic("out of memory");
+    const cell = poolPopCons() orelse
+        rc_allocator().create(Cons) catch @panic("out of memory");
     cell.* = Cons{ .rc = 1, .head = head, .tail = tail.list };
     return Value{ .list = cell };
 }
@@ -318,7 +415,8 @@ pub fn makeRecordL(
     fields: []const Value,
     labels: []const ?[]const u8,
 ) Value {
-    const record = rc_allocator().create(Record) catch @panic("out of memory");
+    const record = poolPopRecord() orelse
+        rc_allocator().create(Record) catch @panic("out of memory");
     var owned_fields: []const Value = &.{};
     if (fields.len != 0) {
         const copied = allocValueSlice(fields.len);
