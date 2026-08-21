@@ -638,6 +638,60 @@ pub fn consReuse(token: ?*Cons, head: Value, tail: Value) Value {
     return cons(head, tail);
 }
 
+/// FBIP reuse for records: consume the matched record subject and hand
+/// its allocation (struct + field slice) to a same-arity construction in
+/// the clause body when it is unshared. Field values are released; the
+/// slice is kept for in-place overwrite.
+pub fn dropReuseRecord(subject: Value, arity: usize) ?*Record {
+    const record = @constCast(subject.record);
+    if (record.rc == 1 and record.fields.len == arity) {
+        for (record.fields) |field| drop(field);
+        return record;
+    }
+    drop(subject);
+    return null;
+}
+
+/// Consumes the fields; name and labels must be static strings.
+pub fn makeRecordReuse(
+    token: ?*Record,
+    name: []const u8,
+    fields: []const Value,
+    labels: []const ?[]const u8,
+) Value {
+    if (token) |record| {
+        @memcpy(@constCast(record.fields), fields);
+        record.name = name;
+        record.labels = labels;
+        return Value{ .record = record };
+    }
+    return makeRecordL(name, fields, labels);
+}
+
+/// FBIP reuse for tuples: consume the matched tuple subject and hand its
+/// element slice to a same-arity construction when it is unshared.
+pub fn dropReuseTuple(subject: Value, arity: usize) ?[]Value {
+    const elements = subject.tuple;
+    if (elements.len == arity and elements.len != 0) {
+        const rc = valueSliceRc(elements);
+        if (rc.* == 1) {
+            for (elements) |element| drop(element);
+            return @constCast(elements);
+        }
+    }
+    drop(subject);
+    return null;
+}
+
+/// Consumes the elements; the slice itself is not kept.
+pub fn tupleReuse(token: ?[]Value, elements: []const Value) Value {
+    if (token) |dest| {
+        @memcpy(dest, elements);
+        return Value{ .tuple = dest };
+    }
+    return tupleValue(elements);
+}
+
 // ------------------------------------------------------------ threads
 
 /// Deep-copy a value for transfer across a thread boundary. Reference

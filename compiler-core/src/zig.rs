@@ -224,6 +224,18 @@ impl ModuleContext<'_> {
     }
 }
 
+/// The allocation shape a reuse token was reclaimed from; a construction
+/// consumes it only when the shape matches exactly.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReuseKind {
+    /// zig type ?*P.Cons, feeds `[x, ..rest]` constructions.
+    Cons,
+    /// zig type ?*P.Record with this field count.
+    Record(usize),
+    /// zig type ?[]P.Value with this element count.
+    Tuple(usize),
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Tail {
     /// The expression's value is returned from the function; self tail
@@ -252,14 +264,14 @@ struct FunctionGenerator<'a, 'm> {
     /// use transfers the reference (no dup) and no scope-exit drop is
     /// emitted.
     moved: HashSet<String>,
-    /// A reuse token (?*Cons identifier) available to the next
-    /// single-element list construction rendered in the current clause
-    /// body, together with the barrier level it was armed at. The token
-    /// may only be consumed at the same barrier level: conditional code
-    /// (nested cases, lambda bodies, short-circuit right operands, panic
-    /// messages) increments the level, so a construction that might not
-    /// execute can never take the token.
-    reuse_token: Option<(String, usize)>,
+    /// A reuse token (identifier + shape) available to the next matching
+    /// construction rendered in the current clause body, together with
+    /// the barrier level it was armed at. The token may only be consumed
+    /// at the same barrier level: conditional code (nested cases, lambda
+    /// bodies, short-circuit right operands, panic messages) increments
+    /// the level, so a construction that might not execute can never
+    /// take the token.
+    reuse_token: Option<(String, ReuseKind, usize)>,
     reuse_barrier: usize,
     /// Rendered binding names holding raw (unboxed) scalars, with their
     /// kind. Raw bindings carry no references: no dup, no drop, no move
@@ -950,15 +962,40 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
 
             TypedExpr::Tuple { elements, .. } => {
+                let count = elements.len();
                 let elements = elements
                     .iter()
                     .map(|element| self.expression(element, indent))
                     .join(", ");
+                // A pending same-arity tuple token: overwrite the matched
+                // tuple's element slice in place.
+                if self
+                    .reuse_token
+                    .as_ref()
+                    .is_some_and(|(_, kind, armed)| {
+                        *kind == ReuseKind::Tuple(count) && *armed == self.reuse_barrier
+                    })
+                {
+                    let (token, _, _) = self.reuse_token.take().expect("checked");
+                    return format!(
+                        "P.tupleReuse({token}, &[_]Value{{ {elements} }})"
+                    );
+                }
                 format!("P.tupleValue(&[_]Value{{ {elements} }})")
             }
 
             TypedExpr::TupleIndex { tuple, index, .. } => {
-                format!("P.tupleField({}, {index})", self.expression(tuple, indent))
+                // A live local container: borrow the element and take one
+                // reference on it directly, skipping the container
+                // dup/drop pair that P.tupleField(P.dup(v)) would cost.
+                match self.borrowable_local(tuple) {
+                    Some(container) => {
+                        format!("P.dup(({container}).tuple[{index}])")
+                    }
+                    None => {
+                        format!("P.tupleField({}, {index})", self.expression(tuple, indent))
+                    }
+                }
             }
 
             TypedExpr::List { elements, tail, .. } => {
@@ -970,9 +1007,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     && self
                         .reuse_token
                         .as_ref()
-                        .is_some_and(|(_, armed)| *armed == self.reuse_barrier)
+                        .is_some_and(|(_, kind, armed)| {
+                            *kind == ReuseKind::Cons && *armed == self.reuse_barrier
+                        })
                 {
-                    let (token, _) = self.reuse_token.take().expect("checked");
+                    let (token, _, _) = self.reuse_token.take().expect("checked");
                     let head = self.expression(&elements[0], indent);
                     let tail = self.expression(tail.as_ref().expect("tail"), indent);
                     return format!("P.consReuse({token}, {head}, {tail})");
@@ -992,11 +1031,25 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
 
             TypedExpr::RecordAccess { record, index, .. } => {
-                format!("P.recordField({}, {index})", self.expression(record, indent))
+                match self.borrowable_local(record) {
+                    Some(container) => {
+                        format!("P.dup(({container}).record.fields[{index}])")
+                    }
+                    None => {
+                        format!("P.recordField({}, {index})", self.expression(record, indent))
+                    }
+                }
             }
 
             TypedExpr::PositionalAccess { record, index, .. } => {
-                format!("P.recordField({}, {index})", self.expression(record, indent))
+                match self.borrowable_local(record) {
+                    Some(container) => {
+                        format!("P.dup(({container}).record.fields[{index}])")
+                    }
+                    None => {
+                        format!("P.recordField({}, {index})", self.expression(record, indent))
+                    }
+                }
             }
 
             TypedExpr::RecordUpdate {
@@ -1146,6 +1199,31 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         }
     }
 
+    /// A container expression that can be field-read in place: a local
+    /// variable that is not move-approved (a moved var must go through
+    /// the consuming path or its reference would leak). The variable
+    /// stays live until its scope-exit drop, so borrowing a field out of
+    /// it needs no dup/drop pair on the container.
+    fn borrowable_local(&self, expression: &TypedExpr) -> Option<String> {
+        let TypedExpr::Var {
+            constructor, name, ..
+        } = expression
+        else {
+            return None;
+        };
+        if !matches!(
+            constructor.variant,
+            ValueConstructorVariant::LocalVariable { .. }
+        ) {
+            return None;
+        }
+        let rendered = self.scope.get(name)?;
+        if self.moved.contains(rendered) {
+            return None;
+        }
+        Some(rendered.clone())
+    }
+
     /// Render a scalar-typed (Int/Float/Bool) expression as a raw zig
     /// i64/f64/bool. Total: subtrees without a raw form render boxed and
     /// read the union field, which is free for scalars (no references).
@@ -1209,6 +1287,42 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             // read.
             TypedExpr::Panic { .. } | TypedExpr::Todo { .. } => {
                 self.expression(expression, indent)
+            }
+
+            // A scalar field of a live local: borrow it in place. No
+            // dup/drop on the container, no Value round-trip — the hot
+            // shape of record-heavy numeric code (vec.x +. vec.y).
+            TypedExpr::RecordAccess { record, index, .. } => {
+                match self.borrowable_local(record) {
+                    Some(container) => format!(
+                        "(({container}).record.fields[{index}]).{}",
+                        kind.field()
+                    ),
+                    None => {
+                        format!("({}).{}", self.expression(expression, indent), kind.field())
+                    }
+                }
+            }
+            TypedExpr::PositionalAccess { record, index, .. } => {
+                match self.borrowable_local(record) {
+                    Some(container) => format!(
+                        "(({container}).record.fields[{index}]).{}",
+                        kind.field()
+                    ),
+                    None => {
+                        format!("({}).{}", self.expression(expression, indent), kind.field())
+                    }
+                }
+            }
+            TypedExpr::TupleIndex { tuple, index, .. } => {
+                match self.borrowable_local(tuple) {
+                    Some(container) => {
+                        format!("(({container}).tuple[{index}]).{}", kind.field())
+                    }
+                    None => {
+                        format!("({}).{}", self.expression(expression, indent), kind.field())
+                    }
+                }
             }
 
             _ => format!("({}).{}", self.expression(expression, indent), kind.field()),
@@ -1503,16 +1617,31 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 })
                 .join(", ")
         });
-        match labels {
-            Some(labels) => format!(
-                "P.makeRecordL(\"{name}\", &[_]Value{{ {} }}, &[_]?[]const u8{{ {labels} }})",
+        let labels = match labels {
+            Some(labels) => format!("&[_]?[]const u8{{ {labels} }}"),
+            None => "&[_]?[]const u8{}".to_string(),
+        };
+        // A pending same-arity record token: overwrite the matched
+        // record's allocation (struct + field slice) in place. The
+        // variant name and labels are static strings, so retagging to a
+        // different variant of the type is free.
+        if self
+            .reuse_token
+            .as_ref()
+            .is_some_and(|(_, kind, armed)| {
+                *kind == ReuseKind::Record(arguments.len()) && *armed == self.reuse_barrier
+            })
+        {
+            let (token, _, _) = self.reuse_token.take().expect("checked");
+            return format!(
+                "P.makeRecordReuse({token}, \"{name}\", &[_]Value{{ {} }}, {labels})",
                 arguments.join(", ")
-            ),
-            None => format!(
-                "P.makeRecord(\"{name}\", &[_]Value{{ {} }})",
-                arguments.join(", ")
-            ),
+            );
         }
+        format!(
+            "P.makeRecordL(\"{name}\", &[_]Value{{ {} }}, {labels})",
+            arguments.join(", ")
+        )
     }
 
     /// A module function used as a value: wrap it in a lifted closure fn.
@@ -1564,7 +1693,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let forwarded = (0..arity)
             .map(|index| zig_identifier(&format!("p${index}")))
             .collect::<Vec<_>>();
+        // The wrapper body renders through this generator but lives in a
+        // lifted fn: a pending reuse token must not be consumed there
+        // (its identifier is not in the wrapper's scope).
+        let stashed_token = self.reuse_token.take();
         let construction = self.record_construction(module, name, &forwarded, field_map);
+        self.reuse_token = stashed_token;
         self.module.lifted.push(format!(
             "fn {wrapper}(@\"env$\": []const Value, {parameters}) Value {{\n{INDENT}_ = @\"env$\";\n{INDENT}return {construction};\n}}\n"
         ));
@@ -1727,23 +1861,36 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         "{inner_indent}if (!(({guard}).bool)) {{ {on_fail}break :{clause_label}; }}\n"
                     ));
                 }
-                // FBIP reuse: hand the matched cons cell to the body's
-                // guaranteed construction. Extracted only after the guard
-                // has passed (a failed guard leaves the subject owned by
-                // the case), and the subject is then excluded from this
-                // clause's exit drops.
-                let reuses = subjects.len() == 1
-                    && clause_reuses_cons(clause)
-                    && self.reuse_token.is_none();
-                if reuses {
+                // FBIP reuse: hand the matched allocation (cons cell,
+                // record, or tuple) to the body's guaranteed same-shape
+                // construction. Extracted only after the guard has passed
+                // (a failed guard leaves the subject owned by the case),
+                // and the subject is then excluded from this clause's
+                // exit drops.
+                let reuse_kind = if subjects.len() == 1 && self.reuse_token.is_none() {
+                    clause_reuse_kind(clause)
+                } else {
+                    None
+                };
+                if let Some(kind) = reuse_kind {
                     let token = self.fresh_name("reuse");
-                    guard_and_body.push_str(&format!(
-                        "{inner_indent}const {token} = P.dropReuseCons({});\n",
-                        subject_names[0]
-                    ));
-                    self.reuse_token = Some((token, self.reuse_barrier));
+                    let arm = match kind {
+                        ReuseKind::Cons => {
+                            format!("P.dropReuseCons({})", subject_names[0])
+                        }
+                        ReuseKind::Record(arity) => {
+                            format!("P.dropReuseRecord({}, {arity})", subject_names[0])
+                        }
+                        ReuseKind::Tuple(arity) => {
+                            format!("P.dropReuseTuple({}, {arity})", subject_names[0])
+                        }
+                    };
+                    guard_and_body
+                        .push_str(&format!("{inner_indent}const {token} = {arm};\n"));
+                    self.reuse_token = Some((token, kind, self.reuse_barrier));
                 }
-                let subject_drops: &[String] = if reuses { &[] } else { &subject_names };
+                let subject_drops: &[String] =
+                    if reuse_kind.is_some() { &[] } else { &subject_names };
 
                 // Everything owned at the exit taken from this clause:
                 // clause bindings, the case subjects, and (in tail position)
@@ -2498,30 +2645,60 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
 /// is (or directly contains, as a call argument) a `[y, ..zs]`
 /// construction. The construction is then guaranteed to render exactly
 /// once, so the matched cell can be handed to it for in-place reuse.
-fn clause_reuses_cons(clause: &TypedClause) -> bool {
-    let single_cons_pattern = clause.alternative_patterns.is_empty()
-        && clause.pattern.len() == 1
-        && matches!(
-            &clause.pattern[0],
-            Pattern::List { elements, tail, .. } if elements.len() == 1 && tail.is_some()
-        );
-    if !single_cons_pattern {
-        return false;
+fn clause_reuse_kind(clause: &TypedClause) -> Option<ReuseKind> {
+    if !clause.alternative_patterns.is_empty() || clause.pattern.len() != 1 {
+        return None;
     }
-    fn is_cons_construction(expression: &TypedExpr) -> bool {
-        matches!(
-            expression,
-            TypedExpr::List { elements, tail, .. } if elements.len() == 1 && tail.is_some()
-        )
+    // The allocation shape the clause's pattern matched.
+    let matched = match &clause.pattern[0] {
+        Pattern::List { elements, tail, .. } if elements.len() == 1 && tail.is_some() => {
+            ReuseKind::Cons
+        }
+        Pattern::Constructor {
+            arguments, type_, ..
+        } if !type_.is_bool() && !type_.is_nil() && !arguments.is_empty() => {
+            ReuseKind::Record(arguments.len())
+        }
+        Pattern::Tuple { elements, .. } if !elements.is_empty() => {
+            ReuseKind::Tuple(elements.len())
+        }
+        _ => return None,
+    };
+    // A construction the body is guaranteed to render, with the same
+    // allocation shape as the match.
+    fn is_matching_construction(expression: &TypedExpr, matched: ReuseKind) -> bool {
+        match (expression, matched) {
+            (TypedExpr::List { elements, tail, .. }, ReuseKind::Cons) => {
+                elements.len() == 1 && tail.is_some()
+            }
+            (TypedExpr::Tuple { elements, .. }, ReuseKind::Tuple(arity)) => {
+                elements.len() == arity
+            }
+            (TypedExpr::Call { fun, arguments, .. }, ReuseKind::Record(arity)) => {
+                arguments.len() == arity
+                    && match fun.as_ref() {
+                        TypedExpr::Var { constructor, .. } => matches!(
+                            &constructor.variant,
+                            ValueConstructorVariant::Record { .. }
+                        ),
+                        TypedExpr::ModuleSelect { constructor, .. } => {
+                            matches!(constructor, ModuleValueConstructor::Record { .. })
+                        }
+                        _ => false,
+                    }
+            }
+            _ => false,
+        }
     }
     match &clause.then {
-        expression if is_cons_construction(expression) => true,
+        expression if is_matching_construction(expression, matched) => Some(matched),
         // Call arguments are always evaluated, so a construction there is
         // guaranteed to render (covers accumulator-style tail calls).
         TypedExpr::Call { arguments, .. } => arguments
             .iter()
-            .any(|argument| is_cons_construction(&argument.value)),
-        _ => false,
+            .any(|argument| is_matching_construction(&argument.value, matched))
+            .then_some(matched),
+        _ => None,
     }
 }
 

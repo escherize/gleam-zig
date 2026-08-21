@@ -125,6 +125,9 @@ fn all_files_have_copyright_notice() {
                 // GitHub templates
                 "md" if path.starts_with("../.github/") => return None,
 
+                // The GitHub Pages documentation site
+                _ if path.starts_with("../docs/") => return None,
+
                 // Static assets
                 "gz" => return None,
                 "tar" => return None,
