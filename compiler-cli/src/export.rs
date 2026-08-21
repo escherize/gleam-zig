@@ -273,6 +273,151 @@ pub fn package_information(paths: &ProjectPaths, out: Utf8PathBuf) -> Result<()>
     Ok(())
 }
 
+
+/// Export the whole build as one runnable zig source file: every module
+/// and native file wrapped in a namespace struct, the prelude inlined
+/// once, and an entrypoint at the bottom. Anyone with a zig toolchain
+/// can `zig run` the result with no gleam installed.
+pub fn zig_source(paths: &ProjectPaths, output: Option<Utf8PathBuf>) -> Result<()> {
+    let target = Target::Zig;
+    let mode = Mode::Prod;
+
+    let manifest = crate::build::download_dependencies(paths, crate::cli::Reporter::new())?;
+    let build_options = Options {
+        root_target_support: TargetSupport::Enforced,
+        warnings_as_errors: false,
+        codegen: Codegen::All,
+        compile: Compile::All,
+        mode,
+        target: Some(target),
+        no_print_progress: false,
+    };
+    let built = crate::build::main(paths, build_options, manifest)?;
+    let package_name = built.root_package.config.name.clone();
+    let _ = built.get_main_function(&package_name, target)?;
+
+    let build_root = paths.build_directory_for_target(mode, target);
+
+    // Collect every .zig file under the build root (generated modules and
+    // copied native files alike), keyed by root-relative path sans
+    // extension. The prelude and any leftover entrypoints are handled
+    // separately.
+    let mut files: Vec<(String, String)> = Vec::new();
+    let mut pending = vec![build_root.clone()];
+    while let Some(dir) = pending.pop() {
+        let entries = std::fs::read_dir(dir.as_std_path()).map_err(|error| {
+            gleam_core::Error::FileIo {
+                kind: gleam_core::error::FileKind::Directory,
+                action: gleam_core::error::FileIoAction::Read,
+                path: dir.clone(),
+                err: Some(error.to_string()),
+            }
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| gleam_core::Error::FileIo {
+                kind: gleam_core::error::FileKind::Directory,
+                action: gleam_core::error::FileIoAction::Read,
+                path: dir.clone(),
+                err: Some(error.to_string()),
+            })?;
+            let entry_path = Utf8PathBuf::from_path_buf(entry.path())
+                .expect("build paths are utf-8");
+            if entry_path.is_dir() {
+                pending.push(entry_path);
+                continue;
+            }
+            if entry_path.extension() != Some("zig") {
+                continue;
+            }
+            let relative = entry_path
+                .strip_prefix(&build_root)
+                .expect("walked file is under the build root")
+                .as_str()
+                .trim_end_matches(".zig")
+                .to_string();
+            if relative == "prelude" || relative.starts_with("entrypoint@") {
+                continue;
+            }
+            let text = crate::fs::read(&entry_path)?;
+            files.push((relative, text));
+        }
+    }
+    files.sort();
+
+    let prelude = crate::fs::read(build_root.join("prelude.zig"))?;
+
+    // `a/b/../c` -> `a/c`, resolving the dots @import climbs with.
+    fn normalise(path: &str) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        for part in path.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    let _ = parts.pop();
+                }
+                part => parts.push(part),
+            }
+        }
+        parts.join("/")
+    }
+
+    fn mangled(key: &str) -> String {
+        if key == "prelude" {
+            "@\"gleam$prelude\"".to_string()
+        } else {
+            format!("@\"gleam${key}\"")
+        }
+    }
+
+    // Rewrite every relative @import in a file to the wrapped namespace
+    // it resolves to; std and builtin imports pass through.
+    fn rewrite_imports(text: &str, file_key: &str) -> String {
+        let directory = match file_key.rfind('/') {
+            Some(index) => &file_key[..index],
+            None => "",
+        };
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(start) = rest.find("@import(\"") {
+            let after = &rest[start + 9..];
+            let Some(end) = after.find('"') else { break };
+            let import = &after[..end];
+            out.push_str(&rest[..start]);
+            if import == "std" || import == "builtin" {
+                out.push_str(&rest[start..start + 9 + end + 2]);
+            } else {
+                let resolved = normalise(&format!("{directory}/{import}"));
+                let key = resolved.trim_end_matches(".zig");
+                out.push_str(&mangled(key));
+            }
+            rest = &rest[start + 9 + end + 2..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    let mut single = String::new();
+    single.push_str(&format!(
+        "// Single-file export of the Gleam project `{package_name}` (zig target).\n// Generated by `gleam export zig-source`; run with `zig run <file>`.\n\nconst @\"gleam$std\" = @import(\"std\");\n\nconst @\"gleam$prelude\" = struct {{\n{prelude}}};\n\n"
+    ));
+    for (key, text) in &files {
+        single.push_str(&format!(
+            "const {} = struct {{\n{}}};\n\n",
+            mangled(key),
+            rewrite_imports(text, key)
+        ));
+    }
+    single.push_str(&format!(
+        "pub fn main(init: @\"gleam$std\".process.Init.Minimal) void {{\n    @\"gleam$prelude\".process_args = init.args;\n    @\"gleam$prelude\".drop({}.@\"main\"());\n    @\"gleam$prelude\".leakCheckExit();\n}}\n",
+        mangled(&format!("{package_name}/{package_name}"))
+    ));
+
+    let output = output.unwrap_or_else(|| Utf8PathBuf::from(format!("{package_name}.zig")));
+    fs::write(&output, &single)?;
+    println!("Wrote {output}");
+    Ok(())
+}
+
 /// Build a native release-mode executable via the zig target.
 ///
 pub fn zig_executable(

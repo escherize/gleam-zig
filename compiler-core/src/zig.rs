@@ -227,6 +227,13 @@ pub fn module(
     // Constants become zero-argument functions: their values may allocate
     // (records, lists), which zig cannot do in a comptime const initializer.
     for constant in &module.definitions.constants {
+        // A constant that cannot run on this target (its value touches
+        // functions with no zig implementation) is not emitted: the type
+        // checker already blocks zig code from using it, and emitting it
+        // would reference functions that were themselves skipped.
+        if !constant.implementations.supports(crate::build::Target::Zig) {
+            continue;
+        }
         let mut generator = FunctionGenerator::new(&mut shared);
         let value = generator.constant(&constant.value);
         let visibility = if constant.publicity.is_private() {
@@ -1347,7 +1354,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 ..
             } => match constructor {
                 ModuleValueConstructor::Fn { module, name, .. } => {
-                    self.function_reference(module, name, function_arity(expression))
+                    self.function_reference(module, name, function_arity(expression), true)
                 }
                 ModuleValueConstructor::Record {
                     name,
@@ -2022,17 +2029,20 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     }
 
     /// A module function used as a value: wrap it in a lifted closure fn.
+    /// A function with no zig implementation gets a panicking wrapper
+    /// instead of a reference to a function that was never emitted (the
+    /// type checker keeps such values out of reachable zig code).
     fn function_reference(
         &mut self,
         module: &EcoString,
         name: &EcoString,
         arity: usize,
+        supported: bool,
     ) -> String {
         let key = (module.clone(), name.clone(), arity);
         if let Some(wrapper) = self.module.wrapper_cache.get(&key) {
             return format!("P.makeClosure(@ptrCast(&{wrapper}), &[_]Value{{}})");
         }
-        let target = self.module_function_target(module, name);
         let wrapper = zig_identifier(&format!(
             "wrap${}${name}",
             module.as_str().replace('/', "$")
@@ -2044,8 +2054,18 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             .map(|index| zig_identifier(&format!("p${index}")))
             .join(", ");
         let separator = if arity == 0 { "" } else { ", " };
+        let body = if supported {
+            let target = self.module_function_target(module, name);
+            format!("return {target}({forwarded});")
+        } else {
+            let _ = forwarded;
+            format!(
+                "return P.gleamPanic(\"function without a zig implementation used as a value\", \"{}\", 0);",
+                self.module.src_path
+            )
+        };
         self.module.lifted.push(format!(
-            "fn {wrapper}(@\"env$\": []const Value{separator}{parameters}) Value {{\n{INDENT}_ = @\"env$\";\n{INDENT}return {target}({forwarded});\n}}\n"
+            "fn {wrapper}(@\"env$\": []const Value{separator}{parameters}) Value {{\n{INDENT}_ = @\"env$\";\n{INDENT}{body}\n}}\n"
         ));
         let _ = self.module.wrapper_cache.insert(key, wrapper.clone());
         format!("P.makeClosure(@ptrCast(&{wrapper}), &[_]Value{{}})")
@@ -2427,7 +2447,8 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 for binding in &moved_bound {
                     assert!(
                         !self.moved.contains(binding),
-                        "zig codegen: pattern-binding move was not consumed by the clause body"
+                        "zig codegen: pattern-binding move was not consumed by the clause body: {binding} at {:?}",
+                        clause.location
                     );
                 }
 
@@ -3280,8 +3301,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 name,
                 module,
                 arity,
+                implementations,
                 ..
-            } => self.function_reference(&module.clone(), &name.clone(), *arity),
+            } => {
+                let supported = implementations.supports(crate::build::Target::Zig);
+                self.function_reference(&module.clone(), &name.clone(), *arity, supported)
+            }
             ValueConstructorVariant::ModuleConstant { module, name, .. } => {
                 if *module == self.module.module_name {
                     format!("{}()", constant_identifier(name))
@@ -3833,8 +3858,30 @@ fn summarise_uses(name: &EcoString, statements: &[TypedStatement]) -> UseSummary
     summary
 }
 
-/// Uses inside nested statement sequences (blocks, lambda bodies). Rebinds
-/// are not tracked here; inner shadowing only inflates counts (fails safe).
+/// Uses inside a nested statement sequence (block or lambda body),
+/// stopping at a rebind of the name: later occurrences belong to the new
+/// binding, and attributing them here would arm moves that the rendered
+/// code never consumes. The sequence's scope ends with it, so the caller
+/// keeps counting after the block.
+fn sequence_uses(
+    name: &EcoString,
+    statements: &[TypedStatement],
+    branchy: bool,
+    summary: &mut UseSummary,
+) {
+    for statement in statements {
+        if let Statement::Assignment(assignment) = statement {
+            expression_uses(name, &assignment.value, branchy, summary);
+            if pattern_binds(name, &assignment.pattern) {
+                return;
+            }
+            continue;
+        }
+        statement_uses(name, statement, branchy, summary);
+    }
+}
+
+/// Uses inside a single nested statement.
 fn statement_uses(
     name: &EcoString,
     statement: &TypedStatement,
@@ -3957,9 +4004,7 @@ fn expression_uses(
             }
         }
         TypedExpr::Block { statements, .. } => {
-            for statement in statements {
-                statement_uses(name, statement, branchy, summary);
-            }
+            sequence_uses(name, statements.as_slice(), branchy, summary);
         }
         TypedExpr::Pipeline {
             first_value,
@@ -3976,9 +4021,7 @@ fn expression_uses(
         // Anything inside a lambda runs zero or many times; never a
         // straight-line use.
         TypedExpr::Fn { body, .. } => {
-            for statement in body {
-                statement_uses(name, statement, true, summary);
-            }
+            sequence_uses(name, body.as_slice(), true, summary);
         }
         TypedExpr::List { elements, tail, .. } => {
             for element in elements {
