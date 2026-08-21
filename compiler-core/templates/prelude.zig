@@ -93,7 +93,17 @@ pub const Record = struct {
     /// Field labels for inspection, null when a field is positional.
     /// Empty when no field has a label. Always static strings.
     labels: []const ?[]const u8 = &.{},
+    /// Storage for small records: `fields` points here for arity <= 4,
+    /// halving allocator traffic on the dominant record shapes (Ok/Error,
+    /// pairs, vectors). Readers only ever see the slice.
+    inline_fields: [max_inline_fields]Value = undefined,
+
+    pub fn fieldsAreInline(self: *const Record) bool {
+        return @intFromPtr(self.fields.ptr) == @intFromPtr(&self.inline_fields);
+    }
 };
+
+pub const max_inline_fields = 4;
 
 /// All function values share one shape: a type-erased pointer to a lifted
 /// function whose first parameter is the captured environment. Call sites
@@ -308,7 +318,7 @@ pub fn drop(value: Value) void {
             mutable.rc -= 1;
             if (mutable.rc == 0) {
                 for (r.fields) |field| drop(field);
-                if (r.fields.len != 0) freeValueSlice(r.fields);
+                if (r.fields.len != 0 and !r.fieldsAreInline()) freeValueSlice(r.fields);
                 if (!poolPushRecord(mutable)) rc_allocator().destroy(mutable);
             }
         },
@@ -436,13 +446,19 @@ pub fn makeRecordL(
 ) Value {
     const record = poolPopRecord() orelse
         rc_allocator().create(Record) catch @panic("out of memory");
-    var owned_fields: []const Value = &.{};
-    if (fields.len != 0) {
+    record.rc = 1;
+    record.name = name;
+    record.labels = labels;
+    if (fields.len == 0) {
+        record.fields = &.{};
+    } else if (fields.len <= max_inline_fields) {
+        @memcpy(record.inline_fields[0..fields.len], fields);
+        record.fields = record.inline_fields[0..fields.len];
+    } else {
         const copied = allocValueSlice(fields.len);
         @memcpy(copied, fields);
-        owned_fields = copied;
+        record.fields = copied;
     }
-    record.* = Record{ .rc = 1, .name = name, .fields = owned_fields, .labels = labels };
     return Value{ .record = record };
 }
 
@@ -745,13 +761,21 @@ pub fn deepCopy(value: Value) Value {
         },
         .record => |r| {
             const record = rc_allocator().create(Record) catch @panic("out of memory");
-            var fields: []const Value = &.{};
-            if (r.fields.len != 0) {
+            record.rc = 1;
+            record.name = r.name;
+            record.labels = r.labels;
+            if (r.fields.len == 0) {
+                record.fields = &.{};
+            } else if (r.fields.len <= max_inline_fields) {
+                for (r.fields, 0..) |field, index| {
+                    record.inline_fields[index] = deepCopy(field);
+                }
+                record.fields = record.inline_fields[0..r.fields.len];
+            } else {
                 const copied = allocValueSlice(r.fields.len);
                 for (r.fields, 0..) |field, index| copied[index] = deepCopy(field);
-                fields = copied;
+                record.fields = copied;
             }
-            record.* = Record{ .rc = 1, .name = r.name, .fields = fields, .labels = r.labels };
             return Value{ .record = record };
         },
         .closure => |c| {
