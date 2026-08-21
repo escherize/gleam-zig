@@ -654,7 +654,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
     <ul class="clean">
       <li><strong>Public functions use the boxed ABI</strong> — take and return <code>P.Value</code>; construct arguments with <code>P.intValue</code>, <code>P.copyString</code>, and friends from the prelude</li>
       <li><strong>Ship one file instead:</strong> <code>gleam export zig-executable</code> produces a static ReleaseFast binary; <code>--target-triple</code> cross-compiles it. Compilation for linux x86_64/aarch64, windows, and macos is verified from one machine — the windows binaries themselves have never been run (see <a href="#limits">limits</a>)</li>
-      <li><strong>Not built yet, tracked:</strong> a single-file <code>.zig</code> source export for zero-dependency embedding <span class="planned">planned · issue #11</span></li>
+      <li><strong>Or ship one source file:</strong> <code>gleam export zig-source</code> emits the whole project — every module, the native files, the inlined runtime, and an entrypoint — as one <code>.zig</code> file anyone can <code>zig run</code> with no gleam installed. The ray tracer's single file produces the byte-identical image</li>
     </ul>
     <p>Also stated plainly: there is <strong>no external production consumer yet</strong> — no third-party Zig project calling compiled Gleam in anger. The entrypoint above is the real, working consumption path; a packaged library story is future work.</p>
   </section>
