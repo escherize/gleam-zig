@@ -351,6 +351,14 @@ struct FunctionGenerator<'a, 'm> {
     /// kind. Raw bindings carry no references: no dup, no drop, no move
     /// bookkeeping; boxed on demand at polymorphic uses.
     raw_bindings: HashMap<String, ScalarKind>,
+    /// Per-clause last-use moves (the scoped branch-aware liveness):
+    /// rendered binding -> the location of the case whose clauses each
+    /// consume it at most once. The binding is excluded from every drop
+    /// list; when that case renders, one-use clauses arm a move and
+    /// zero-use clauses emit a compensation drop, so every runtime path
+    /// releases the reference exactly once. Values are (case location,
+    /// source-level name) — the source name re-counts uses per clause.
+    clause_moves: HashMap<String, (SrcSpan, EcoString)>,
     /// Set while generating a native-ABI function body: `return` exits
     /// unwrap their boxed value to this raw kind.
     native_return: Option<ScalarKind>,
@@ -370,6 +378,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             reuse_token: None,
             reuse_barrier: 0,
             raw_bindings: HashMap::new(),
+            clause_moves: HashMap::new(),
             native_return: None,
         }
     }
@@ -477,6 +486,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 // the moved value must not appear in any drop list.
                 if summarise_uses(parameter_name, &function.body).single_straight_line_use() {
                     let _ = self.moved.insert(rendered);
+                } else if let Some(case_location) =
+                    per_clause_case_moves(parameter_name, &function.body)
+                {
+                    let _ = self
+                        .clause_moves
+                        .insert(rendered, (case_location, parameter_name.clone()));
                 } else {
                     dropped_params.push(rendered);
                 }
@@ -501,6 +516,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 parameter_list.push(format!("{rendered}: Value"));
                 if summarise_uses(parameter_name, &function.body).single_straight_line_use() {
                     let _ = self.moved.insert(rendered);
+                } else if let Some(case_location) =
+                    per_clause_case_moves(parameter_name, &function.body)
+                {
+                    let _ = self
+                        .clause_moves
+                        .insert(rendered, (case_location, parameter_name.clone()));
                 } else {
                     dropped_params.push(rendered);
                 }
@@ -632,6 +653,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 .single_straight_line_use()
             {
                 let _ = self.moved.insert(rendered);
+            } else if let Some(case_location) =
+                per_clause_case_moves(parameter_name, &function.body)
+            {
+                let _ = self
+                    .clause_moves
+                    .insert(rendered, (case_location, parameter_name.clone()));
             } else {
                 dropped_params.push(rendered);
             }
@@ -728,6 +755,27 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         )
                     ) && later_uses
                         .is_some_and(|uses| uses.single_straight_line_use());
+                    // Per-clause last use: the binding dies inside the
+                    // region's final case, once per clause.
+                    let clause_movable = !movable
+                        && matches!(
+                            (&assignment.pattern, &assignment.kind),
+                            (
+                                Pattern::Variable { .. },
+                                AssignmentKind::Let | AssignmentKind::Generated
+                            )
+                        )
+                        && !is_last;
+                    let clause_case = if clause_movable {
+                        match &assignment.pattern {
+                            Pattern::Variable { name, .. } => {
+                                per_clause_case_moves(name, &statements[index + 1..])
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
                     // A raw scalar binding with no later uses has no
                     // scope-exit drop to reference it; zig rejects unused
                     // locals, so emit a discard.
@@ -738,6 +786,20 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     if movable {
                         for binding in &bindings {
                             let _ = self.moved.insert(binding.clone());
+                        }
+                    } else if let Some(case_location) = clause_case {
+                        let source = match &assignment.pattern {
+                            Pattern::Variable { name, .. } => name.clone(),
+                            _ => unreachable!("clause_case requires a variable pattern"),
+                        };
+                        for binding in &bindings {
+                            // Raw scalar bindings never register (no refs).
+                            if !self.raw_bindings.contains_key(binding) {
+                                let _ = self.clause_moves.insert(
+                                    binding.clone(),
+                                    (case_location, source.clone()),
+                                );
+                            }
                         }
                     } else {
                         own.extend(bindings);
@@ -798,11 +860,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     }
                 }
                 TypedExpr::Case {
-                    subjects, clauses, ..
+                    subjects,
+                    clauses,
+                    location,
+                    ..
                 } => {
                     let saved_barrier = self.reuse_barrier;
                     self.reuse_barrier += 1;
-                    let out = self.case_statement(subjects, clauses, indent, drops);
+                    let out =
+                        self.case_statement(subjects, clauses, *location, indent, drops);
                     self.reuse_barrier = saved_barrier;
                     return out;
                 }
@@ -1094,7 +1160,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             },
 
             TypedExpr::Case {
-                subjects, clauses, ..
+                subjects,
+                clauses,
+                location,
+                ..
             } => {
                 // Conditional region: pending reuse tokens must not be
                 // consumed by constructions inside clause bodies. The level
@@ -1103,8 +1172,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 self.reuse_barrier += 1;
                 let label = self.next_label("case");
                 let inner_indent = format!("{indent}{INDENT}");
-                let body =
-                    self.case_clauses(subjects, clauses, Tail::No, &label, &inner_indent, &[]);
+                let body = self.case_clauses(
+                    subjects,
+                    clauses,
+                    *location,
+                    Tail::No,
+                    &label,
+                    &inner_indent,
+                    &[],
+                );
                 self.reuse_barrier = saved_barrier;
                 format!("{label}: {{\n{body}{inner_indent}unreachable;\n{indent}}}")
             }
@@ -1394,7 +1470,10 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         rendered
                     } else {
                         // Scalars carry no references: read the field
-                        // directly, no dup or move bookkeeping needed.
+                        // directly. A move approved for this use is
+                        // consumed by the read (dropping a scalar is a
+                        // no-op, so transfer and read are the same).
+                        let _ = self.moved.remove(&rendered);
                         format!("({rendered}).{}", kind.field())
                     }
                 }
@@ -2017,6 +2096,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             parameter_list.push(format!("{rendered}: Value"));
             if summarise_uses(&parameter_name, body).single_straight_line_use() {
                 let _ = generator.moved.insert(rendered);
+            } else if let Some(case_location) = per_clause_case_moves(&parameter_name, body)
+            {
+                let _ = generator
+                    .clause_moves
+                    .insert(rendered, (case_location, parameter_name.clone()));
             } else {
                 dropped_params.push(rendered);
             }
@@ -2054,10 +2138,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         &mut self,
         subjects: &[TypedExpr],
         clauses: &[TypedClause],
+        location: SrcSpan,
         indent: &str,
         drops: &[String],
     ) -> String {
-        let body = self.case_clauses(subjects, clauses, Tail::Return, "", indent, drops);
+        let body =
+            self.case_clauses(subjects, clauses, location, Tail::Return, "", indent, drops);
         format!("{body}{indent}unreachable;\n")
     }
 
@@ -2065,11 +2151,28 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         &mut self,
         subjects: &[TypedExpr],
         clauses: &[TypedClause],
+        location: SrcSpan,
         tail: Tail,
         value_label: &str,
         indent: &str,
         pending_drops: &[String],
     ) -> String {
+        // Bindings whose per-clause last use lives in THIS case: each
+        // clause either moves the reference at its single use or releases
+        // it with a compensation drop. Drained here so nested cases inside
+        // clause bodies cannot claim them.
+        let clause_move_bindings: Vec<(String, EcoString)> = {
+            let mine: Vec<(String, EcoString)> = self
+                .clause_moves
+                .iter()
+                .filter(|(_, (span, _))| *span == location)
+                .map(|(binding, (_, source))| (binding.clone(), source.clone()))
+                .collect();
+            for (binding, _) in &mine {
+                let _ = self.clause_moves.remove(binding);
+            }
+            mine
+        };
         let mut out = String::new();
         let mut subject_names = Vec::new();
         // Owned subjects (dropped at every clause exit); a subject that is
@@ -2148,6 +2251,21 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         "{inner_indent}if (!(({guard}).bool)) {{ {on_fail}break :{clause_label}; }}\n"
                     ));
                 }
+                // Per-clause last use: after the guard has passed (a
+                // failed guard falls through with the binding still
+                // owned), a one-use clause arms a move consumed at that
+                // use; a zero-use clause releases the reference here.
+                for (binding, source) in &clause_move_bindings {
+                    let mut summary = UseSummary::default();
+                    expression_uses(source, &clause.then, false, &mut summary);
+                    if summary.count == 1 {
+                        let _ = self.moved.insert(binding.clone());
+                    } else {
+                        guard_and_body
+                            .push_str(&format!("{inner_indent}P.drop({binding});\n"));
+                    }
+                }
+
                 // FBIP reuse: hand the matched allocation (cons cell,
                 // record, or tuple) to the body's guaranteed same-shape
                 // construction. Extracted only after the guard has passed
@@ -2218,6 +2336,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     self.reuse_token.is_none(),
                     "zig codegen: reuse token was not consumed by the clause body"
                 );
+                for (binding, _) in &clause_move_bindings {
+                    assert!(
+                        !self.moved.contains(binding),
+                        "zig codegen: per-clause move was not consumed by the clause body"
+                    );
+                }
 
                 let breaks_label = format!("break :{clause_label}");
                 let labelled = clause_body.contains(&breaks_label)
@@ -3315,6 +3439,73 @@ fn expression_borrow_only(
                 })
         }),
     }
+}
+
+/// Per-clause last-use eligibility: the binding's region ends with a case
+/// statement, no other statement (or subject expression) uses it, and
+/// every clause body holds at most one straight-line use. Only one clause
+/// runs, so each one-use clause can transfer the reference at its use and
+/// each zero-use clause releases it with a compensation drop. Returns the
+/// case's location; the emitter arms the moves when that exact case
+/// renders. A bare-variable subject is allowed (the case borrows it).
+fn per_clause_case_moves(name: &EcoString, region: &[TypedStatement]) -> Option<SrcSpan> {
+    let (last, before) = region.split_last()?;
+    for statement in before {
+        let mut summary = UseSummary::default();
+        statement_uses(name, statement, false, &mut summary);
+        if summary.count > 0 {
+            return None;
+        }
+        // A rebind ends the binding's region; fail safe.
+        if let Statement::Assignment(assignment) = statement {
+            if pattern_binds(name, &assignment.pattern) {
+                return None;
+            }
+        }
+    }
+    let Statement::Expression(TypedExpr::Case {
+        subjects,
+        clauses,
+        location,
+        ..
+    }) = last
+    else {
+        return None;
+    };
+    for subject in subjects {
+        // A whole-subject variable is borrowed by the case; anything
+        // else containing the name consumes it outside the clauses.
+        if matches!(subject, TypedExpr::Var { name: used, .. } if used == name) {
+            continue;
+        }
+        let mut summary = UseSummary::default();
+        expression_uses(name, subject, false, &mut summary);
+        if summary.count > 0 {
+            return None;
+        }
+    }
+    let mut any_moves = false;
+    for clause in clauses {
+        // A clause-pattern rebind shadows the name in that body.
+        let mut patterns = vec![&clause.pattern];
+        patterns.extend(clause.alternative_patterns.iter());
+        if patterns
+            .iter()
+            .any(|multi| multi.iter().any(|pattern| pattern_binds(name, pattern)))
+        {
+            return None;
+        }
+        // Guard uses take their own references before the arm point and
+        // are self-contained; only body uses consume the base reference.
+        let mut summary = UseSummary::default();
+        expression_uses(name, &clause.then, false, &mut summary);
+        match summary.count {
+            0 => {}
+            1 if !summary.under_branch_or_lambda => any_moves = true,
+            _ => return None,
+        }
+    }
+    if any_moves { Some(*location) } else { None }
 }
 
 /// How a name is used in a region of code, for the conservative last-use
