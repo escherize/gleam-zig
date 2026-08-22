@@ -88,13 +88,38 @@ fn scalar_kind(type_: &crate::type_::Type) -> Option<ScalarKind> {
 struct FlatType {
     /// The constructor (and type) name, e.g. "Vec".
     name: EcoString,
-    /// Field kinds in declaration order.
-    fields: Vec<ScalarKind>,
+    /// Field representations in declaration order.
+    fields: Vec<FlatField>,
     /// Field labels, when the constructor has them (for boxing).
     labels: Vec<Option<EcoString>>,
 }
 
+/// How one field of a flat record is represented.
+#[derive(Clone, PartialEq, Eq)]
+enum FlatField {
+    /// A raw i64/f64/bool.
+    Scalar(ScalarKind),
+    /// Another flat struct, stored inline by value.
+    Nested(EcoString),
+}
+
 impl FlatType {
+    /// Total scalar count, counting through nested flat fields. Nested
+    /// types are always admitted before their parents, so every nested
+    /// name resolves in `all`.
+    fn scalar_width(&self, all: &HashMap<EcoString, FlatType>) -> usize {
+        self.fields
+            .iter()
+            .map(|field| match field {
+                FlatField::Scalar(_) => 1,
+                FlatField::Nested(name) => all
+                    .get(name)
+                    .map(|nested| nested.scalar_width(all))
+                    .unwrap_or(usize::MAX),
+            })
+            .sum()
+    }
+
     fn struct_name(&self) -> String {
         zig_identifier(&format!("flat${}", self.name))
     }
@@ -105,15 +130,23 @@ impl FlatType {
         zig_identifier(&format!("unbox${}", self.name))
     }
     /// The zig declarations for this type: the struct plus its box and
-    /// unbox helpers.
-    fn declarations(&self) -> String {
+    /// unbox helpers. Nested flat fields are stored inline by value and
+    /// bridged recursively through their own helpers.
+    fn declarations(&self, all: &HashMap<EcoString, FlatType>) -> String {
         let struct_name = self.struct_name();
         let fields = self
             .fields
             .iter()
             .enumerate()
-            .map(|(index, kind)| {
-                format!("{INDENT}f{index}: {},\n", kind.zig_type())
+            .map(|(index, field)| {
+                let type_name = match field {
+                    FlatField::Scalar(kind) => kind.zig_type().to_string(),
+                    FlatField::Nested(name) => all
+                        .get(name)
+                        .expect("nested flat field names a flat type")
+                        .struct_name(),
+                };
+                format!("{INDENT}f{index}: {type_name},\n")
             })
             .join("");
         let labels = if self.labels.iter().all(|label| label.is_none()) {
@@ -134,22 +167,42 @@ impl FlatType {
             .fields
             .iter()
             .enumerate()
-            .map(|(index, kind)| format!("{}(v.f{index})", kind.box_helper()))
+            .map(|(index, field)| match field {
+                FlatField::Scalar(kind) => format!("{}(v.f{index})", kind.box_helper()),
+                FlatField::Nested(name) => {
+                    let nested = all.get(name).expect("nested names a flat type");
+                    format!("{}(v.f{index})", nested.box_fn())
+                }
+            })
             .join(", ");
         let unboxed_fields = self
             .fields
             .iter()
             .enumerate()
-            .map(|(index, kind)| {
-                format!(
+            .map(|(index, field)| match field {
+                FlatField::Scalar(kind) => format!(
                     "{INDENT}{INDENT}.f{index} = (v.record.fields[{index}]).{},\n",
                     kind.field()
-                )
+                ),
+                FlatField::Nested(name) => {
+                    let nested = all.get(name).expect("nested names a flat type");
+                    // The nested unbox consumes its own reference, so take
+                    // one for it before the parent's drop.
+                    format!(
+                        "{INDENT}{INDENT}.f{index} = {}(P.dup(v.record.fields[{index}])),\n",
+                        nested.unbox_fn()
+                    )
+                }
             })
             .join("");
         let name = &self.name;
         format!(
-            "const {struct_name} = struct {{\n{fields}}};\n\n             fn {}(v: {struct_name}) Value {{\n             {INDENT}return P.makeRecordL(\"{name}\", &[_]Value{{ {boxed_fields} }}, {labels});\n}}\n\n             fn {}(v: Value) {struct_name} {{\n             {INDENT}const out = {struct_name}{{\n{unboxed_fields}{INDENT}}};\n             {INDENT}P.drop(v);\n{INDENT}return out;\n}}\n",
+            "const {struct_name} = struct {{\n{fields}}};\n\n\
+             fn {}(v: {struct_name}) Value {{\n\
+             {INDENT}return P.makeRecordL(\"{name}\", &[_]Value{{ {boxed_fields} }}, {labels});\n}}\n\n\
+             fn {}(v: Value) {struct_name} {{\n\
+             {INDENT}const out = {struct_name}{{\n{unboxed_fields}{INDENT}}};\n\
+             {INDENT}P.drop(v);\n{INDENT}return out;\n}}\n",
             self.box_fn(),
             self.unbox_fn(),
         )
@@ -218,6 +271,22 @@ pub fn module(
     // cross-module callers and every polymorphic boundary keep the
     // uniform boxed representation.
     let mut flat_types: HashMap<EcoString, FlatType> = HashMap::new();
+    // The widest a flat struct may be, counting nested scalars. Four
+    // fits a vector or a small pair; wider records pay more in by-value
+    // copies at boundaries than they save in allocations.
+    let max_flat_width = 4;
+    // Candidates: single-constructor types with 1..=8 fields. A field
+    // qualifies if it is a concrete scalar or another candidate's type,
+    // so eligibility is a least fixpoint — start with the scalar-only
+    // types and keep admitting types whose fields are all resolved.
+    // Recursive types never resolve (a struct cannot contain itself by
+    // value), so they simply stay boxed.
+    struct FlatCandidate<'a> {
+        name: EcoString,
+        arguments: &'a [crate::ast::RecordConstructorArg<std::sync::Arc<crate::type_::Type>>],
+        labels: Vec<Option<EcoString>>,
+    }
+    let mut candidates: Vec<FlatCandidate<'_>> = Vec::new();
     for custom_type in &module.definitions.custom_types {
         if custom_type.external_zig.is_some() || custom_type.constructors.len() != 1 {
             continue;
@@ -226,27 +295,76 @@ pub fn module(
         if constructor.arguments.is_empty() || constructor.arguments.len() > 8 {
             continue;
         }
-        let Some(fields) = constructor
-            .arguments
-            .iter()
-            .map(|argument| scalar_kind(&argument.type_))
-            .collect::<Option<Vec<_>>>()
-        else {
-            continue;
-        };
-        let labels = constructor
-            .arguments
-            .iter()
-            .map(|argument| argument.label.as_ref().map(|(_, label)| label.clone()))
-            .collect();
-        let _ = flat_types.insert(
-            constructor.name.clone(),
-            FlatType {
-                name: constructor.name.clone(),
-                fields,
-                labels,
-            },
-        );
+        candidates.push(FlatCandidate {
+            name: constructor.name.clone(),
+            arguments: &constructor.arguments,
+            labels: constructor
+                .arguments
+                .iter()
+                .map(|argument| argument.label.as_ref().map(|(_, label)| label.clone()))
+                .collect(),
+        });
+    }
+    loop {
+        let mut admitted = false;
+        for candidate in &candidates {
+            if flat_types.contains_key(&candidate.name) {
+                continue;
+            }
+            let fields: Option<Vec<FlatField>> = candidate
+                .arguments
+                .iter()
+                .map(|argument| {
+                    if let Some(kind) = scalar_kind(&argument.type_) {
+                        return Some(FlatField::Scalar(kind));
+                    }
+                    // A nested flat field: same module, already admitted.
+                    let (field_module, field_name) = flat_type_key(&argument.type_)?;
+                    if field_module != module.name {
+                        return None;
+                    }
+                    flat_types
+                        .get(&field_name)
+                        .map(|nested| FlatField::Nested(nested.name.clone()))
+                })
+                .collect();
+            // A flat struct is copied by value at every boundary
+            // crossing, so a wide one can cost more than the boxed
+            // pointer it replaces (the ray tracer's Sphere, unboxed once
+            // per sphere per ray inside a fold, measured 16% slower flat
+            // than boxed). Cap the total scalar width: narrow records
+            // ride in registers, wide ones stay boxed.
+            let width = fields.as_ref().map(|fields| {
+                fields
+                    .iter()
+                    .map(|field| match field {
+                        FlatField::Scalar(_) => 1,
+                        FlatField::Nested(name) => flat_types
+                            .get(name)
+                            .map(|nested| nested.scalar_width(&flat_types))
+                            .unwrap_or(usize::MAX),
+                    })
+                    .sum::<usize>()
+            });
+            let fields = match (fields, width) {
+                (Some(fields), Some(width)) if width <= max_flat_width => Some(fields),
+                _ => None,
+            };
+            if let Some(fields) = fields {
+                let _ = flat_types.insert(
+                    candidate.name.clone(),
+                    FlatType {
+                        name: candidate.name.clone(),
+                        fields,
+                        labels: candidate.labels.clone(),
+                    },
+                );
+                admitted = true;
+            }
+        }
+        if !admitted {
+            break;
+        }
     }
 
     // Functions whose parameters are only ever field-read get a borrowed
@@ -398,9 +516,10 @@ pub fn module(
     // Flat struct declarations and their box/unbox helpers come first;
     // zig containers are order-independent, but keeping them at the top
     // makes the generated file readable.
-    for name in shared.flat_types.keys().sorted() {
-        let flat = shared.flat_types.get(name).expect("iterating keys");
-        functions.push_str(&flat.declarations());
+    let all_flat = shared.flat_types.clone();
+    for name in all_flat.keys().sorted() {
+        let flat = all_flat.get(name).expect("iterating keys");
+        functions.push_str(&flat.declarations(&all_flat));
         functions.push('\n');
     }
     // Constants become zero-argument functions: their values may allocate
@@ -616,6 +735,28 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         }
     }
 
+    /// The struct-field path for an expression that reads through flat
+    /// values, e.g. `sphere.center.x` -> `v$sphere.f0.f0`. None when any
+    /// step leaves the flat world.
+    fn flat_path(&self, expression: &TypedExpr) -> Option<String> {
+        match expression {
+            TypedExpr::Var { name, .. } => {
+                let rendered = self.scope.get(name)?;
+                if self.flat_bindings.contains_key(rendered) {
+                    Some(rendered.clone())
+                } else {
+                    None
+                }
+            }
+            TypedExpr::RecordAccess { record, index, .. }
+            | TypedExpr::PositionalAccess { record, index, .. } => {
+                let base = self.flat_path(record)?;
+                Some(format!("{base}.f{index}"))
+            }
+            _ => None,
+        }
+    }
+
     /// A field read off a flat struct local, boxed for a polymorphic
     /// context. Returns None when the container is not a flat binding.
     fn flat_field_access(&mut self, record: &TypedExpr, index: u64) -> Option<String> {
@@ -625,8 +766,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let rendered = self.scope.get(name)?.clone();
         let constructor = self.flat_bindings.get(&rendered)?.clone();
         let flat = self.module.flat_types.get(&constructor)?;
-        let kind = *flat.fields.get(index as usize)?;
-        Some(format!("{}({rendered}.f{index})", kind.box_helper()))
+        match flat.fields.get(index as usize)? {
+            FlatField::Scalar(kind) => {
+                Some(format!("{}({rendered}.f{index})", kind.box_helper()))
+            }
+            FlatField::Nested(name) => {
+                let nested = self.module.flat_types.get(name)?;
+                Some(format!("{}({rendered}.f{index})", nested.box_fn()))
+            }
+        }
     }
 
     /// The flat type of an expression, when this module has one for it.
@@ -671,7 +819,19 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     .iter()
                     .enumerate()
                     .map(|(index, argument)| {
-                        format!(".f{index} = {}", self.scalar(&argument.value, indent))
+                        let rendered = match flat.fields[index].clone() {
+                            FlatField::Scalar(_) => self.scalar(&argument.value, indent),
+                            FlatField::Nested(name) => {
+                                let nested = self
+                                    .module
+                                    .flat_types
+                                    .get(&name)
+                                    .expect("nested names a flat type")
+                                    .clone();
+                                self.flat(&argument.value, &nested, indent)
+                            }
+                        };
+                        format!(".f{index} = {rendered}")
                     })
                     .join(", ");
                 return format!("{}{{ {fields} }}", flat.struct_name());
@@ -1945,6 +2105,11 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         }
                     }
                 }
+                // A scalar reached through nested flat structs:
+                // sphere.center.x becomes s.f0.f0, no boxing anywhere.
+                if let Some(path) = self.flat_path(expression) {
+                    return path;
+                }
                 match self.borrowable_local(record) {
                     Some(container) => format!(
                         "(({container}).record.fields[{index}]).{}",
@@ -3215,26 +3380,48 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             Pattern::Constructor { arguments, .. } => {
                 for (index, argument) in arguments.iter().enumerate() {
                     let path = format!("{subject}.f{index}");
-                    let kind = flat.fields[index];
-                    match &argument.value {
-                        Pattern::Discard { .. } => {}
-                        Pattern::Variable { name, .. } => {
-                            compiled.bindings.push((name.clone(), path, true));
-                            let _ = self
-                                .pending_raw_bindings
-                                .push((name.clone(), kind));
-                        }
-                        Pattern::Int { int_value, .. } => {
-                            compiled.conditions.push(format!("{path} == {int_value}"));
-                        }
-                        Pattern::Float { value, .. } => {
-                            compiled.conditions.push(format!("{path} == {value}"));
-                        }
-                        other => {
-                            // Anything else (nested patterns) falls back
-                            // to the boxed representation for that field.
-                            let boxed = format!("{}({path})", kind.box_helper());
-                            self.compile_pattern(other, &boxed, compiled);
+                    match flat.fields[index].clone() {
+                        FlatField::Scalar(kind) => match &argument.value {
+                            Pattern::Discard { .. } => {}
+                            Pattern::Variable { name, .. } => {
+                                compiled.bindings.push((name.clone(), path, true));
+                                self.pending_raw_bindings.push((name.clone(), kind));
+                            }
+                            Pattern::Int { int_value, .. } => {
+                                compiled.conditions.push(format!("{path} == {int_value}"));
+                            }
+                            Pattern::Float { value, .. } => {
+                                compiled.conditions.push(format!("{path} == {value}"));
+                            }
+                            other => {
+                                // Anything else falls back to the boxed
+                                // representation for that field.
+                                let boxed = format!("{}({path})", kind.box_helper());
+                                self.compile_pattern(other, &boxed, compiled);
+                            }
+                        },
+                        FlatField::Nested(nested_name) => {
+                            let nested = self
+                                .module
+                                .flat_types
+                                .get(&nested_name)
+                                .expect("nested names a flat type")
+                                .clone();
+                            match &argument.value {
+                                Pattern::Discard { .. } => {}
+                                Pattern::Variable { name, .. } => {
+                                    compiled.bindings.push((name.clone(), path, true));
+                                    self.pending_flat_bindings
+                                        .push((name.clone(), nested.name.clone()));
+                                }
+                                // A pattern reaching into the nested
+                                // struct recurses on the same machinery.
+                                other => {
+                                    self.compile_flat_pattern(
+                                        other, &path, &nested, compiled,
+                                    );
+                                }
+                            }
                         }
                     }
                 }
