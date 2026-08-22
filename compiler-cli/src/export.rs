@@ -274,6 +274,106 @@ pub fn package_information(paths: &ProjectPaths, out: Utf8PathBuf) -> Result<()>
 }
 
 
+
+/// Bare-file mode: a `.gleam` file given instead of running inside a
+/// project. A throwaway project is scaffolded in the system temp
+/// directory (stable per file name, so incremental builds cache), with
+/// the zig-target `gleam_stdlib` fork as a path dependency — found via
+/// $GLEAM_ZIG_STDLIB or a `gleam-stdlib/` directory in an ancestor of
+/// the file or the working directory.
+pub fn bare_file_project(file: &camino::Utf8Path) -> Result<ProjectPaths> {
+    if file.extension() != Some("gleam") {
+        return Err(gleam_core::Error::FileIo {
+            kind: gleam_core::error::FileKind::File,
+            action: gleam_core::error::FileIoAction::Open,
+            path: file.to_path_buf(),
+            err: Some("expected a .gleam file".into()),
+        });
+    }
+    let source = crate::fs::read(file)?;
+    let stem = file
+        .file_stem()
+        .unwrap_or("main")
+        .to_lowercase()
+        .replace('-', "_");
+    let mut module: String = stem
+        .chars()
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
+        .collect();
+    if module.is_empty() || module.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        module = format!("m{module}");
+    }
+
+    let stdlib = find_zig_stdlib(file)?;
+
+    let root = camino::Utf8PathBuf::from_path_buf(std::env::temp_dir())
+        .expect("temp dir is utf-8")
+        .join("gleam-bare-file")
+        .join(&module);
+    crate::fs::mkdir(&root.join("src"))?;
+    // Canonicalise (macOS tempdirs live behind a /var symlink): path
+    // dependencies get relativised against the project root in the
+    // manifest, and a symlinked root makes those paths unresolvable on
+    // the next run.
+    let root = camino::Utf8PathBuf::from_path_buf(
+        std::fs::canonicalize(root.as_std_path()).expect("temp project just created"),
+    )
+    .expect("temp dir is utf-8");
+    crate::fs::write(
+        &root.join("gleam.toml"),
+        &format!(
+            "name = \"{module}\"\nversion = \"1.0.0\"\n\n[dependencies]\ngleam_stdlib = {{ path = \"{stdlib}\" }}\n"
+        ),
+    )?;
+    crate::fs::write(&root.join("src").join(format!("{module}.gleam")), &source)?;
+    Ok(ProjectPaths::new(root))
+}
+
+fn find_zig_stdlib(file: &camino::Utf8Path) -> Result<camino::Utf8PathBuf> {
+    if let Ok(path) = std::env::var("GLEAM_ZIG_STDLIB") {
+        return Ok(camino::Utf8PathBuf::from(path));
+    }
+    let mut starts: Vec<camino::Utf8PathBuf> = Vec::new();
+    let absolute = if file.is_absolute() {
+        file.to_path_buf()
+    } else {
+        camino::Utf8PathBuf::from_path_buf(
+            std::env::current_dir().expect("current directory exists"),
+        )
+        .expect("cwd is utf-8")
+        .join(file)
+    };
+    if let Some(parent) = absolute.parent() {
+        starts.push(parent.to_path_buf());
+    }
+    starts.push(
+        camino::Utf8PathBuf::from_path_buf(
+            std::env::current_dir().expect("current directory exists"),
+        )
+        .expect("cwd is utf-8"),
+    );
+    for start in starts {
+        let mut dir = Some(start.as_path());
+        while let Some(current) = dir {
+            let candidate = current.join("gleam-stdlib");
+            if candidate.join("gleam.toml").is_file() {
+                return Ok(candidate);
+            }
+            dir = current.parent();
+        }
+    }
+    Err(gleam_core::Error::FileIo {
+        kind: gleam_core::error::FileKind::Directory,
+        action: gleam_core::error::FileIoAction::Open,
+        path: camino::Utf8PathBuf::from("gleam-stdlib"),
+        err: Some(
+            "bare-file mode needs the zig-target gleam_stdlib fork: set \
+GLEAM_ZIG_STDLIB or keep a gleam-stdlib/ checkout in an ancestor directory"
+                .into(),
+        ),
+    })
+}
+
 /// Export the whole build as one runnable zig source file: every module
 /// and native file wrapped in a namespace struct, the prelude inlined
 /// once, and an entrypoint at the bottom. Anyone with a zig toolchain
