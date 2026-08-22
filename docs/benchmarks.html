@@ -487,7 +487,7 @@ provenance.
 
   <nav class="mini" aria-label="Benchmarks">
     <a href="#d-string">string building</a>
-    <a href="#d-scalar">scalar compute</a>
+    <a href="#d-dict">dictionary</a>
     <a href="#d-ray">ray tracer</a>
     <a href="#d-coin">coin change</a>
     <a href="#d-vec">vector records</a>
@@ -539,40 +539,20 @@ provenance.
   </div>
 </section>
 
-<section class="dossier" id="d-scalar">
-  <h2>Scalar compute <span class="verdict">— zig 2.5&times; node, 7&times; the BEAM</span></h2>
-  <p class="lede" style="margin-top:14px">Naive fib(32) plus a four-million-step float escape loop — pure call-and-arithmetic pressure.</p>
+<section class="dossier" id="d-dict">
+  <h2>Dictionary <span class="verdict lost">— the loss: 16&times; slower than both JITs</span></h2>
+  <p class="lede" style="margin-top:14px">Ten thousand keys inserted into a map, then every one looked up again. The workload every real program does — indexing data — and the worst thing this target currently does.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:8%"></div><span class="t">0.02 s</span><span class="m">1.5 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.24 s</span><span class="m">52 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:58%"></div><span class="t">0.14 s</span><span class="m">87 MB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:100%"></div><span class="t">1.12 s</span><span class="m">36 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:6%"></div><span class="t">0.07 s</span><span class="m">56 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:10%"></div><span class="t">0.11 s</span><span class="m">100 MB</span></div>
   </div></div>
-  <div class="compile" style="margin-top:18px">
-    <div class="compile-grid">
-      <div class="pane pane--src">
-        <div class="pane-head"><img src="assets/gleam-lucy.svg" alt=""><span class="lang">fib.gleam</span><span class="dot" aria-hidden="true"></span></div>
-<pre><span class="k">fn</span> <span class="fn">fib</span>(n: <span class="ty">Int</span>) -&gt; <span class="ty">Int</span> {
-  <span class="k">case</span> n &lt; <span class="num">2</span> {
-    <span class="ty">True</span> -&gt; n
-    <span class="ty">False</span> -&gt; <span class="fn">fib</span>(n - <span class="num">1</span>) + <span class="fn">fib</span>(n - <span class="num">2</span>)
-  }
-}</pre>
-      </div>
-      <div class="pane pane--out">
-        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">emitted — raw i64 ABI, verbatim</span><span class="dot" aria-hidden="true"></span></div>
-<pre><span class="zk">fn</span> <span class="gn">@"native$fib"</span>(n: <span class="ty">i64</span>) <span class="ty">i64</span> {
-    <span class="zk">if</span> (n &lt; <span class="num">2</span>) <span class="zk">return</span> n;
-    <span class="zk">return</span> <span class="gn">@"native$fib"</span>(n -% <span class="num">1</span>)
-         +% <span class="gn">@"native$fib"</span>(n -% <span class="num">2</span>);
-}</pre>
-      </div>
-    </div>
-  </div>
-  <div class="prose"><p><strong>Why it's fast:</strong> functions whose whole signature is concrete scalars get a raw ABI — <code>i64</code> in, <code>i64</code> out, no tagged values anywhere on the hot path. What remains is what a C compiler would emit. Both JITs are respectable here (OTP's JIT does fib in 0.14 s); the native code is simply what they spend warmup trying to reach.</p></div>
+  <div class="prose"><p><strong>Why it loses, plainly:</strong> <code>gleam/dict</code> on this target is an insertion-ordered association list. Every <code>insert</code> scans for an existing key and every <code>get</code> scans to find one, so the whole workload is O(n&sup2;) where node's <code>Map</code> and the BEAM's hash maps are O(1) amortised. Nothing about the compiler is at fault here and no codegen optimisation can rescue it — it is a data structure that has not been written yet. The fix is porting the HAMT the JavaScript target already uses, and this row exists so that work has a number to move.</p>
+  <p>It is on the board for the same reason the vector-records row was before the flat ABI answered it: a benchmark set with no losses in it is a marketing page, not a measurement.</p></div>
   <div class="history">
-    <div class="hstep"><div class="hv">0.08 s</div><div class="hl">boxed values, tagged-union arithmetic</div></div>
+    <div class="hstep now"><div class="hv">1.12 s</div><div class="hl">assoc list, O(n) per op — today</div></div>
     <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.02 s</div><div class="hl">unboxed scalars + native ABI, 08-20</div></div>
+    <div class="hstep"><div class="hv">?</div><div class="hl">HAMT port, issue #8 — not started</div></div>
   </div>
 </section>
 
@@ -743,7 +723,7 @@ python3 examples/harness.py examples/benchmarks/coin_change.gleam</pre>
 <footer>
   <div class="shell">
     <p class="colophon">gleam-zig — an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">fbe68ae62</b>.</p>
+    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">f34910891</b>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">
