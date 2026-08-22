@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>A ray tracer in Gleam, but 18&times; faster</title>
-<meta name="description" content="The same 200-line pure-Gleam ray tracer, byte-identical output, 18&times; faster than the BEAM as a 399 KB native binary — via the gleam-zig compiler fork.">
+<title>A ray tracer in Gleam, but 4.7&times; faster</title>
+<meta name="description" content="The same 200-line pure-Gleam ray tracer, byte-identical output, 4.7&times; faster than the BEAM as a 399 KB native binary — via the gleam-zig compiler fork.">
 <link rel="icon" href="assets/zig-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -431,37 +431,37 @@
 <div class="shell"><main style="max-width:760px;margin:0 auto">
 <div class="hero" style="padding-top:48px;padding-bottom:0">
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint)">2026-08-21 &middot; a gleam-zig field note</p>
-  <h1 class="hero-title" style="max-width:24ch;margin-top:10px">A ray tracer in <span class="src">Gleam</span>, but <span class="out">18&times; faster</span>.</h1>
-  <p class="hero-sub" style="margin-top:16px">Same 200 lines of pure standard-library Gleam. Same image, byte for byte. 18&times; is against the BEAM — where Gleam programs actually live; against V8 it's 1.5&times;, in a tenth of the memory. The only thing that changed is the machine underneath.</p>
+  <h1 class="hero-title" style="max-width:24ch;margin-top:10px">A ray tracer in <span class="src">Gleam</span>, but <span class="out">4.7&times; faster</span>.</h1>
+  <p class="hero-sub" style="margin-top:16px">Same 200 lines of pure standard-library Gleam. Same image, byte for byte. 4.7&times; is against the BEAM — where Gleam programs actually live; against V8 it's 1.9&times;, in a tenth of the memory. The only thing that changed is the machine underneath.</p>
 </div>
 
 <div class="triptych" role="group" aria-label="The same render from all three targets">
   <figure>
     <img src="assets/raytracer-erlang.png" width="320" height="240" alt="Ray-traced scene of reflective spheres on a checkered floor, rendered by the Erlang target">
-    <figcaption><span><b>erlang</b> / OTP 27</span><span class="num">1.48 s</span></figcaption>
+    <figcaption><span><b>erlang</b> / OTP 27</span><span class="num">0.33 s</span></figcaption>
   </figure>
   <figure>
     <img src="assets/raytracer-node.png" width="320" height="240" alt="The identical ray-traced scene, rendered by the JavaScript target on node">
-    <figcaption><span><b>node</b> 22</span><span class="num">0.12 s</span></figcaption>
+    <figcaption><span><b>node</b> 22</span><span class="num">0.13 s</span></figcaption>
   </figure>
   <figure class="z">
     <img src="assets/raytracer-zig.png" width="320" height="240" alt="The identical ray-traced scene, rendered by the gleam-zig native binary">
-    <figcaption><span><b>zig</b> static binary</span><span class="num">0.08 s</span></figcaption>
+    <figcaption><span><b>zig</b> static binary</span><span class="num">0.07 s</span></figcaption>
   </figure>
 </div>
 <p class="trip-note">Three separate renders, one from each target. Spot the difference — you can't: all three PPMs hash to <span class="num">7a452dda1311ec87af42a1e22ba1367c</span>.</p>
 
 <section style="padding-top:34px">
-  <p class="lede">Gleam programs live on the BEAM. This one — spheres, a floor, hard shadows, reflections, PPM to stdout — renders there in <span class="num">1.48 s</span>. Compile the identical source with the <a href="index.html">gleam-zig</a> fork instead and you get a <span class="num">399 KB</span> static binary that renders the identical image in <span class="num">0.08 s</span>:</p>
+  <p class="lede">Gleam programs live on the BEAM. This one — spheres, a floor, hard shadows, reflections, PPM to stdout — renders there in <span class="num">0.33 s</span> of CPU time. Compile the identical source with the <a href="index.html">gleam-zig</a> fork instead and you get a <span class="num">389 KB</span> static binary that renders the identical image in <span class="num">0.07 s</span>:</p>
 
   <div class="panel bench" style="margin-top:20px"><div class="brow">
-    <div class="bhead"><span class="bname">320&times;240, 3 bounces</span><span class="bwhat">md5 of the output identical on every row</span><span class="bwin">18&times; the BEAM, 1.5&times; node</span></div>
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:5%"></div><span class="t">0.08 s</span><span class="m">6 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:8%"></div><span class="t">0.12 s</span><span class="m">65 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">1.48 s</span><span class="m">104 MB</span></div>
+    <div class="bhead"><span class="bname">320&times;240, 3 bounces</span><span class="bwhat">md5 of the output identical on every row</span><span class="bwin">4.7&times; the BEAM, 1.9&times; node</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:21%"></div><span class="t">0.07 s</span><span class="m">6 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:39%"></div><span class="t">0.13 s</span><span class="m">65 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.33 s</span><span class="m">84 MB</span></div>
   </div></div>
 
-  <p>The memory column is arguably the ruder comparison: the native render peaks at <span class="num">6 MB</span> against the BEAM's <span class="num">104 MB</span> and node's <span class="num">65 MB</span> — 17&times; and 10&times; less — and the thing you ship is a <span class="num">399 KB</span> file, not a runtime the target machine has to have installed.</p>
+  <p>The memory column is arguably the ruder comparison: the native render peaks at <span class="num">6 MB</span> against the BEAM's <span class="num">84 MB</span> and node's <span class="num">65 MB</span> — 14&times; and 10&times; less — and the thing you ship is a <span class="num">389 KB</span> file, not a runtime the target machine has to have installed.</p>
   <p>And since this week the whole thing is one command on one file — no project, no manifest:</p>
   <div class="codewrap">
 <pre class="block"><span class="cmt"># one gleam file in, one native binary out</span>
@@ -474,7 +474,7 @@ gleam export zig-source raytracer.gleam --out rt.zig</pre>
 
   <p>The code, both sides of the compile: <a href="https://github.com/escherize/gleam-zig-workspace/blob/main/examples/demo/raytracer/src/raytracer.gleam">raytracer.gleam</a> — the 200-line source — and <a href="https://github.com/escherize/gleam-zig-workspace/blob/main/examples/demo/raytracer/raytracer-single.zig">raytracer-single.zig</a>, the entire emitted program (modules, runtime, entrypoint) as the one file <code>zig-source</code> produces. Read what the compiler actually wrote.</p>
 
-  <h3>Where the 18&times; came from</h3>
+  <h3>Where the 4.7&times; came from</h3>
   <p>Not from one trick. The compiler emits readable Zig with compile-time reference counting instead of a GC, and the number fell over three days of measured steps, each one gated on a 124-program corpus that byte-diffs against the official compiler under a leak checker:</p>
   <div class="history" style="margin-top:14px">
     <div class="hstep"><div class="hv">0.66 s</div><div class="hl">boxed everything</div></div>
@@ -485,9 +485,19 @@ gleam export zig-source raytracer.gleam --out rt.zig</pre>
     <div class="harrow">&rarr;</div>
     <div class="hstep"><div class="hv">0.12 s</div><div class="hl">borrowed ABI + raw guards</div></div>
     <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.08 s</div><div class="hl">inline record fields</div></div>
+    <div class="hstep"><div class="hv">0.08 s</div><div class="hl">inline record fields</div></div>
+    <div class="harrow">&rarr;</div>
+    <div class="hstep now"><div class="hv">0.07 s</div><div class="hl">flat record ABI</div></div>
   </div>
-  <p>Unboxed scalars, functions that borrow instead of counting, vectors whose matched cells are rewritten in place, records that keep their fields inline — and one genuine embarrassment: a third of the runtime turned out to be 230,000 <code>mmap</code> calls from a scratch allocator, misdiagnosed for a day as "output writes". The <a href="benchmarks.html">benchmark dossiers</a> open every one of these up, losses included: allocation churn still goes to the BEAM's JIT by 1.3&times; on one microbenchmark, and integers here are i64, not bignums.</p>
+  <p>Unboxed scalars, functions that borrow instead of counting, vectors whose matched cells are rewritten in place, records that keep their fields inline — and one genuine embarrassment: a third of the runtime turned out to be 230,000 <code>mmap</code> calls from a scratch allocator, misdiagnosed for a day as "output writes". The <a href="benchmarks.html">benchmark dossiers</a> open every one of these up, caveats included: integers here are i64 rather than bignums, and only single-constructor all-scalar records get the flat treatment.</p>
+
+  <div class="callout" style="border-left-color:var(--pink)"><strong>Correction, 2026-08-21.</strong>
+    This note first published the BEAM comparison as 18&times; using erlang's <em>wall</em> time (1.48 s)
+    against everyone else's CPU time — an apples-to-oranges mistake. On CPU time the BEAM renders in
+    0.33 s, so the honest figure is 4.7&times;, and the string-building row on the
+    <a href="benchmarks.html">benchmarks page</a> came down from 24&times; to 6&times; when node was
+    re-measured the same way. The flat record ABI landed in the same pass and took the native render
+    from 0.08 s to 0.07 s. Numbers on every page now quote user CPU time, best of three.</div>
 
   <h3>Why "byte for byte" is the interesting part</h3>
   <p>The speed claim is only worth something because the correctness claim is checked first. Every run of this program on erlang, javascript, and zig produces a PPM with md5 <code class="num">7a452dda1311ec87af42a1e22ba1367c</code>, and every zig binary in the test corpus counts its allocations and fails if one is still live at exit. Fast came second.</p>
@@ -505,7 +515,7 @@ gleam export zig-source raytracer.gleam --out rt.zig</pre>
 <footer>
   <div class="shell">
     <p class="colophon">gleam-zig — an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers measured 2026-08-21, compiler fork <b class="num">89f6e29a7</b>; method on the <a href="benchmarks.html#method">benchmarks page</a>.</p>
+    Numbers measured 2026-08-21, compiler fork <b class="num">fbe68ae62</b>; method on the <a href="benchmarks.html#method">benchmarks page</a>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">

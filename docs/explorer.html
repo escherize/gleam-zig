@@ -474,7 +474,7 @@
     <div class="lane"><span class="who">node</span><div class="bar" id="bar-node"></div><span class="t" id="t-node">—</span><span class="m" id="r-node"></span></div>
     <div class="lane"><span class="who">erlang</span><div class="bar" id="bar-erlang"></div><span class="t" id="t-erlang">—</span><span class="m" id="r-erlang"></span></div>
   </div>
-  <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">wall time, Apple M-series, 2026-08-21 — best of 3 through 1280&times;960, single run above; zig as a ReleaseFast binary rebuilt per cell; node and erl on built output; erlang cells include ~1 s VM boot</span></div>
+  <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">wall time, Apple M-series, 2026-08-21 — best of 3 through 1280&times;960, single run above; zig as a ReleaseFast binary rebuilt per cell; node and erl on built output; erlang cells include ~1 s VM boot, so this page&rsquo;s erlang line sits higher than the CPU-time figures quoted elsewhere; matrix predates the flat record ABI (fbe68ae62), which lowers the zig line further</span></div>
   </div>
   <p class="foot-note" id="coverage-note">zig is measured at every cell. node is measured up to 3840&times;2880 and erlang up to 1280&times;960 — beyond that a single BEAM render crosses into minutes, so those cells are marked "not measured" rather than extrapolated.</p>
 

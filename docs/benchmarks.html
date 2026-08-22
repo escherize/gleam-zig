@@ -499,12 +499,12 @@ provenance.
 <div class="shell"><main style="max-width:860px">
 
 <section class="dossier" id="d-string">
-  <h2>String building <span class="verdict">— zig 24&times; node</span></h2>
+  <h2>String building <span class="verdict">— zig 6&times; node, 5&times; the BEAM</span></h2>
   <p class="lede" style="margin-top:14px">200,000 pieces folded onto one accumulator. The workload every templater, serializer, and logger is secretly made of.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:4%"></div><span class="t">0.02 s</span><span class="m">20 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.48 s</span><span class="m">123 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:23%"></div><span class="t">0.11 s</span><span class="m">137 MB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:23%"></div><span class="t">0.03 s</span><span class="m">1.4 MB</span></div>
+        <div class="lane"><span class="who">node</span><div class="bar" style="width:46%"></div><span class="t">0.06 s</span><span class="m">52 MB</span></div>
+        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.13 s</span><span class="m">82 MB</span></div>
   </div></div>
   <div class="compile" style="margin-top:18px">
     <div class="compile-grid">
@@ -529,7 +529,7 @@ provenance.
       </div>
     </div>
   </div>
-  <div class="prose"><p><strong>Why it's fast:</strong> two pieces had to land together. The runtime tracks buffer capacity in the string header and appends in place when the left operand is unshared — but that only fires if the accumulator actually <em>reaches</em> the append with refcount 1. <code>list.fold</code> uses its accumulator once in each of two case clauses, which naive analysis reads as two uses. Per-clause liveness (only one clause runs) approves the transfer, the refcount stays 1, and 200k appends become an amortized-linear write instead of 200k full copies. Node's string concat is rope-optimized and still loses 24&times;.</p></div>
+  <div class="prose"><p><strong>Why it's fast:</strong> two pieces had to land together. The runtime tracks buffer capacity in the string header and appends in place when the left operand is unshared — but that only fires if the accumulator actually <em>reaches</em> the append with refcount 1. <code>list.fold</code> uses its accumulator once in each of two case clauses, which naive analysis reads as two uses. Per-clause liveness (only one clause runs) approves the transfer, the refcount stays 1, and 200k appends become an amortized-linear write instead of 200k full copies. Node's string concat is rope-optimized and still loses 6&times;.</p></div>
   <div class="history">
     <div class="hstep"><div class="hv">8.6 s</div><div class="hl">O(n&sup2;): accumulator copied per append</div></div>
     <div class="harrow">&rarr;</div>
@@ -540,7 +540,7 @@ provenance.
 </section>
 
 <section class="dossier" id="d-scalar">
-  <h2>Scalar compute <span class="verdict">— zig 12&times; node</span></h2>
+  <h2>Scalar compute <span class="verdict">— zig 2.5&times; node, 7&times; the BEAM</span></h2>
   <p class="lede" style="margin-top:14px">Naive fib(32) plus a four-million-step float escape loop — pure call-and-arithmetic pressure.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:8%"></div><span class="t">0.02 s</span><span class="m">1.5 MB</span></div>
@@ -577,7 +577,7 @@ provenance.
 </section>
 
 <section class="dossier" id="d-ray">
-  <h2>Ray tracer <span class="verdict">— zig 1.5&times; node, byte-identical output</span></h2>
+  <h2>Ray tracer <span class="verdict">— zig 1.9&times; node, byte-identical output</span></h2>
   <p class="lede" style="margin-top:14px">The tri-target demo: 320&times;240, three bounces, and the PPM output is md5-identical on all three machines — this row is also a correctness proof.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:5%"></div><span class="t">0.08 s</span><span class="m">6 MB</span></div>
@@ -616,12 +616,14 @@ provenance.
     <div class="harrow">&rarr;</div>
     <div class="hstep"><div class="hv">0.12 s</div><div class="hl">borrowed ABI + guards</div></div>
     <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.08 s</div><div class="hl">inline record fields, 08-21</div></div>
+    <div class="hstep"><div class="hv">0.08 s</div><div class="hl">inline record fields</div></div>
+    <div class="harrow">&rarr;</div>
+    <div class="hstep now"><div class="hv">0.07 s</div><div class="hl">flat record ABI, 08-21</div></div>
   </div>
 </section>
 
 <section class="dossier" id="d-coin">
-  <h2>Coin change <span class="verdict">— zig 3&times; node, 1.6&times; BEAM</span></h2>
+  <h2>Coin change <span class="verdict">— zig 3&times; node, 1.6&times; the BEAM</span></h2>
   <p class="lede" style="margin-top:14px">Naive recursive counting, ~100 million calls — list pattern-matching and recursion, the BEAM's home turf. It was a loss row until self-recursive borrowing.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:33%"></div><span class="t">0.28 s</span><span class="m">1.8 MB</span></div>
@@ -672,7 +674,7 @@ provenance.
 </section>
 
 <section class="dossier" id="d-vec">
-  <h2>Vector records <span class="verdict lost">— the remaining loss: BEAM by 1.3&times;</span></h2>
+  <h2>Vector records <span class="verdict">— zig 2&times; the BEAM: the last loss, flipped</span></h2>
   <p class="lede" style="margin-top:14px">Ten million iterations of allocate-two-records, read-six-fields — pure allocation churn, kept as the honest stress test of the memory system.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:74%"></div><span class="t">0.17 s</span><span class="m">1.6 MB</span></div>
@@ -699,13 +701,15 @@ provenance.
       </div>
     </div>
   </div>
-  <div class="prose"><p><strong>Why it still loses:</strong> both JITs escape-analyze the temporary vectors into registers — they never allocate at all. The zig target really does allocate: two pooled records per iteration (down from four allocator round-trips after inline field storage landed). It passed node when small records stopped carrying a separate field-slice allocation; catching the BEAM here means allocating nothing, i.e. stack placement for constructions that provably never escape — tracked, not shipped. This row stays on the board <em>because</em> it's a loss: it's the one that keeps the others honest.</p></div>
+  <div class="prose"><p><strong>Why it stopped losing:</strong> the JITs escape-analyze these temporaries into registers, so for weeks this row was the honest loss on the board. The flat record ABI answers it directly: a single-constructor record whose fields are all scalars now travels as a zig struct inside its module, so <code>add</code>/<code>scale</code>/<code>dot</code> compile to register arithmetic with no allocation at all — 0.17 s to 0.03 s, past both JITs. What stays boxed is what the rule excludes: multi-constructor types, records holding strings or lists, anything generic.</p></div>
   <div class="history">
     <div class="hstep"><div class="hv">0.34 s</div><div class="hl">boxed + full RC traffic</div></div>
     <div class="harrow">&rarr;</div>
     <div class="hstep"><div class="hv">0.27 s</div><div class="hl">borrowed params + subjects</div></div>
     <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.17 s</div><div class="hl">inline record fields, 08-21</div></div>
+    <div class="hstep"><div class="hv">0.17 s</div><div class="hl">inline record fields</div></div>
+    <div class="harrow">&rarr;</div>
+    <div class="hstep now"><div class="hv">0.03 s</div><div class="hl">flat record ABI, 08-21</div></div>
   </div>
 </section>
 
@@ -739,7 +743,7 @@ python3 examples/harness.py examples/benchmarks/coin_change.gleam</pre>
 <footer>
   <div class="shell">
     <p class="colophon">gleam-zig — an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">039b8430b</b>.</p>
+    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">fbe68ae62</b>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">

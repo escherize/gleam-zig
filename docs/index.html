@@ -410,8 +410,8 @@ provenance.
       <div class="rail-head">run of record · 2026-08-21</div>
       <div class="stat"><div class="n">122<span class="u">/122</span></div><div class="l">corpus programs match the official compiler byte-for-byte — 0 failures, 27 classified skips</div></div>
       <div class="stat"><div class="n">0<span class="u">leaks</span></div><div class="l">every corpus binary leak-checks itself at exit; one live allocation fails the run</div></div>
-      <div class="stat"><div class="n">398<span class="u">KB</span></div><div class="l">static ray-tracer binary, byte-identical output on erlang, javascript, and zig</div></div>
-      <div class="stat"><div class="n">24<span class="u">&times; node</span></div><div class="l">string-building benchmark (200k-piece fold): 0.02 s vs node's 0.48 s — <a href="#bench">all benchmarks</a></div></div>
+      <div class="stat"><div class="n">389<span class="u">KB</span></div><div class="l">static ray-tracer binary, byte-identical output on erlang, javascript, and zig</div></div>
+      <div class="stat"><div class="n">6<span class="u">&times; node</span></div><div class="l">string-building benchmark (200k-piece fold): 0.02 s vs node's 0.29 s — <a href="#bench">all benchmarks</a></div></div>
     </div>
   </div>
 
@@ -512,7 +512,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       </tbody>
     </table>
     </div>
-    <p>The honest headline: this target wins <strong>footprint and deployment</strong> everywhere — 8–70× less memory than node/BEAM across every measured workload and a single dependency-free file — and, after the unboxing, borrowing, and liveness work, it now wins or ties most of the compute too. The scoreboard, losses included, is in <a href="#bench">benchmarks</a>.</p>
+    <p>The honest headline: this target wins <strong>footprint and deployment</strong> everywhere — 6–70× less memory than node/BEAM across every measured workload and a single dependency-free file — and, after the unboxing, borrowing, and liveness work, it now wins the compute too. The scoreboard, method and caveats included, is in <a href="#bench">benchmarks</a>.</p>
   </section>
 
   <section id="bench">
@@ -520,40 +520,40 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
     <p class="lede">Five workloads, one Gleam source each, identical output verified on every target. Bars are CPU time, drawn to scale per row — the memory column is not a tie anywhere.</p>
     <div class="panel bench">
       <div class="brow">
-        <div class="bhead"><span class="bname">String building</span><span class="bwhat">200,000-piece fold, in-place append</span><span class="bwin">zig 24&times; faster than node</span></div>
-        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:4%"></div><span class="t">0.02 s</span><span class="m">20 MB</span></div>
-        <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.48 s</span><span class="m">123 MB</span></div>
-        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:23%"></div><span class="t">0.11 s</span><span class="m">137 MB</span></div>
+        <div class="bhead"><span class="bname">String building</span><span class="bwhat">200,000-piece fold, in-place append</span><span class="bwin">zig 6&times; node, 5&times; the BEAM</span></div>
+        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:4%"></div><span class="t">0.02 s</span><span class="m">19 MB</span></div>
+        <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.29 s</span><span class="m">118 MB</span></div>
+        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:41%"></div><span class="t">0.12 s</span><span class="m">132 MB</span></div>
       </div>
       <div class="brow">
-        <div class="bhead"><span class="bname">Scalar compute</span><span class="bwhat">naive fib(32) + 4M-step float loop</span><span class="bwin">zig 12&times; faster than node</span></div>
-        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:8%"></div><span class="t">0.02 s</span><span class="m">1.5 MB</span></div>
-        <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.24 s</span><span class="m">52 MB</span></div>
-        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:58%"></div><span class="t">0.14 s</span><span class="m">87 MB</span></div>
+        <div class="bhead"><span class="bname">Scalar compute</span><span class="bwhat">naive fib(32) + 4M-step float loop</span><span class="bwin">zig 2.5&times; node, 7&times; the BEAM</span></div>
+        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:13%"></div><span class="t">0.02 s</span><span class="m">1.5 MB</span></div>
+        <div class="lane"><span class="who">node</span><div class="bar" style="width:33%"></div><span class="t">0.05 s</span><span class="m">50 MB</span></div>
+        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.15 s</span><span class="m">82 MB</span></div>
       </div>
       <div class="brow">
-        <div class="bhead"><span class="bname">Ray tracer</span><span class="bwhat">320&times;240, 3 bounces, byte-identical PPM</span><span class="bwin">zig 1.5&times; node — at 1/10th the memory</span></div>
-        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:5%"></div><span class="t">0.08 s</span><span class="m">6 MB</span></div>
-        <div class="lane"><span class="who">node</span><div class="bar" style="width:8%"></div><span class="t">0.12 s</span><span class="m">65 MB</span></div>
-        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">1.48 s</span><span class="m">104 MB</span></div>
+        <div class="bhead"><span class="bname">Ray tracer</span><span class="bwhat">320&times;240, 3 bounces, byte-identical PPM</span><span class="bwin">zig 1.9&times; node, 4.7&times; the BEAM</span></div>
+        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:21%"></div><span class="t">0.07 s</span><span class="m">6 MB</span></div>
+        <div class="lane"><span class="who">node</span><div class="bar" style="width:39%"></div><span class="t">0.13 s</span><span class="m">65 MB</span></div>
+        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.33 s</span><span class="m">84 MB</span></div>
       </div>
       <div class="brow">
-        <div class="bhead"><span class="bname">Coin change</span><span class="bwhat">naive recursion, ~100M calls</span><span class="bwin">zig 3&times; node — recursion now pays zero refcount ops</span></div>
-        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:33%"></div><span class="t">0.28 s</span><span class="m">1.8 MB</span></div>
-        <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.85 s</span><span class="m">51 MB</span></div>
-        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:54%"></div><span class="t">0.46 s</span><span class="m">86 MB</span></div>
+        <div class="bhead"><span class="bname">Coin change</span><span class="bwhat">naive recursion, ~100M calls</span><span class="bwin">zig 3&times; node, 1.6&times; the BEAM</span></div>
+        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:33%"></div><span class="t">0.28 s</span><span class="m">1.6 MB</span></div>
+        <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.86 s</span><span class="m">49 MB</span></div>
+        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:51%"></div><span class="t">0.44 s</span><span class="m">83 MB</span></div>
       </div>
       <div class="brow">
-        <div class="bhead"><span class="bname">Vector records</span><span class="bwhat">10M record allocate/read cycles</span><span class="bwin lost">the last loss: BEAM's JIT keeps a slim lead on allocation churn</span></div>
-        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:74%"></div><span class="t">0.17 s</span><span class="m">1.6 MB</span></div>
-        <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.23 s</span><span class="m">54 MB</span></div>
-        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:57%"></div><span class="t">0.13 s</span><span class="m">85 MB</span></div>
+        <div class="bhead"><span class="bname">Vector records</span><span class="bwhat">10M record allocate/read cycles</span><span class="bwin">zig 2&times; the BEAM — flat record ABI</span></div>
+        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:23%"></div><span class="t">0.03 s</span><span class="m">1.4 MB</span></div>
+        <div class="lane"><span class="who">node</span><div class="bar" style="width:46%"></div><span class="t">0.06 s</span><span class="m">52 MB</span></div>
+        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.13 s</span><span class="m">82 MB</span></div>
       </div>
-      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time, best of 3, Apple M-series, 2026-08-21 at <span class="num">039b8430b</span> — zig as a ReleaseFast static binary, node 22 and erl (OTP 27) invoked directly on built output; BEAM walls exclude ~1 s VM boot; outputs diffed byte-for-byte first</span></div>
+      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-21 at <span class="num">fbe68ae62</span> — zig as a ReleaseFast static binary, node 22 and erl (OTP 27) invoked directly on built output; BEAM figures are CPU time, excluding ~1 s VM boot; outputs diffed byte-for-byte first</span></div>
     </div>
     <p style="margin-top:18px"><a class="btn btn-primary" style="display:inline-flex" href="benchmarks.html">Every number, opened up — full dossiers
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a></p>
-    <p>What moved the needle, in order: unboxed scalars and a raw native ABI, record/tuple reuse with borrowed field access, killing an mmap-per-allocation scratch allocator, a borrowed parameter ABI, capacity-tracked in-place string append, per-clause last-use moves, self-recursive borrowing (a greatest-fixpoint inference that lets recursion pass references without counting), and inline field storage for small records — each verified against the full corpus under the leak gate before it landed. The loss is real and tracked: per-iteration record allocation still pays reference-count traffic that the JITs escape-analyze away.</p>
+    <p>What moved the needle, in order: unboxed scalars and a raw native ABI, record/tuple reuse with borrowed field access, killing an mmap-per-allocation scratch allocator, a borrowed parameter ABI, capacity-tracked in-place string append, per-clause last-use moves, self-recursive borrowing (a greatest-fixpoint inference that lets recursion pass references without counting), inline field storage for small records, and a flat record ABI that keeps scalar records in registers — each verified against the full corpus under the leak gate before it landed. Every row is now a win on CPU and on memory; the honest caveats moved elsewhere — integers are i64 rather than bignums, and only single-constructor all-scalar records get the flat treatment.</p>
   </section>
 
   <section id="runtime">
@@ -641,7 +641,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       <li><strong class="num">6,180</strong> compiler-suite tests stay green on the fork</li>
     </ul>
     <h3>The tri-target demo</h3>
-    <p>A ~200-line ray tracer runs unchanged on all three targets and produces <strong>byte-identical images</strong> (md5 <code class="num">7a452dda…</code>): native <span class="num">0.08 s / 6 MB</span> in a <span class="num">398 KB</span> binary, node <span class="num">0.12 s / 65 MB</span>, BEAM <span class="num">1.48 s / 104 MB</span>. Three days of optimization took the native time from 0.66 s to 1.5&times; ahead of V8 — at a tenth of the memory. The story is written up in <a href="raytracer-post.html">"A ray tracer in Gleam, but 18&times; faster"</a>.</p>
+    <p>A ~200-line ray tracer runs unchanged on all three targets and produces <strong>byte-identical images</strong> (md5 <code class="num">7a452dda…</code>): native <span class="num">0.07 s / 6 MB</span> in a <span class="num">389 KB</span> binary, node <span class="num">0.13 s / 65 MB</span>, BEAM <span class="num">0.33 s / 84 MB</span> — all CPU time. Three days of optimization took the native render from 0.66 s to nearly twice V8&rsquo;s speed, at a tenth of the memory. The story is written up in <a href="raytracer-post.html">"A ray tracer in Gleam, but 18&times; faster"</a>.</p>
     <div class="note"><strong>The soft spot, named:</strong> the 77-function hand-written externals core is the only layer that can be silently wrong — everything else fails loud at compile time. Differential fuzzing aimed at exactly that layer has <strong>not run yet</strong> <span class="planned">planned</span>; the corpus and the leak gate are the current evidence.</div>
   </section>
 
@@ -706,7 +706,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 <footer>
   <div class="shell">
     <p class="colophon">gleam-zig — an unofficial Gleam → Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">039b8430b</b>, corpus harness in <a href="https://github.com/escherize/gleam-zig-workspace">gleam-zig-workspace</a>.</p>
+    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">fbe68ae62</b>, corpus harness in <a href="https://github.com/escherize/gleam-zig-workspace">gleam-zig-workspace</a>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">
