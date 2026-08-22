@@ -403,6 +403,21 @@
   .cell .lane { grid-template-columns: 52px minmax(0, 1fr) 96px 110px; }
   .cell .lane .m { color: var(--faint); }
   .foot-note { font-family: var(--font-mono); font-size: 11.5px; color: var(--faint); margin-top: 10px; line-height: 1.6; }
+
+  .chartwrap { margin-top: 26px; }
+  .chart { width: 100%; height: auto; display: block; }
+  .chart .grid { stroke: var(--seam-soft); stroke-width: 1; }
+  .chart .axis-label { font-family: var(--font-mono); font-size: 10px; fill: var(--faint); }
+  .chart .line { fill: none; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
+  .chart .line.zig { stroke: var(--amber); }
+  .chart .line.node { stroke: #5a6472; }
+  .chart .line.erlang { stroke: #414b5a; stroke-dasharray: 5 4; }
+  .chart .stop { font-family: var(--font-mono); font-size: 10px; fill: var(--faint); font-style: italic; }
+  .chart .marker { stroke: var(--text); stroke-width: 1.25; }
+  .chart .marker-line { stroke: var(--seam); stroke-dasharray: 3 4; }
+  .chart .series-label { font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+  .chart .series-label.zig { fill: var(--amber); }
+  .chart .series-label.node, .chart .series-label.erlang { fill: var(--dim); }
 </style>
 </head>
 <body>
@@ -443,6 +458,13 @@
     <div class="knob">
       <label>reflection bounces <b id="b-label">3</b></label>
       <input type="range" id="bounces" min="0" max="4" step="1" value="2" aria-label="Reflection bounces">
+    </div>
+  </div>
+
+  <div class="panel chartwrap">
+    <div class="panel-head">render time vs pixels<span class="plate">log&ndash;log; each line one machine at the selected bounce count; dots mark the selected resolution</span></div>
+    <div style="padding:16px 16px 6px">
+      <svg class="chart" id="chart" viewBox="0 0 680 300" role="img" aria-label="Log-log chart of render time against pixel count for the three targets at the selected bounce count. The zig line continues to 8K; the node and erlang lines stop where measurement stopped."></svg>
     </div>
   </div>
 
@@ -532,6 +554,49 @@ function update() {
     }
   }
 }
+const CX = px => 56 + (Math.log10(px) - Math.log10(76800)) / (Math.log10(44236800) - Math.log10(76800)) * 590;
+const CY = s => 262 - (Math.log10(s) - Math.log10(0.05)) / (Math.log10(80) - Math.log10(0.05)) * 240;
+
+function drawChart(bi) {
+  const b = BOUNCES[bi];
+  const ri = +document.getElementById("res").value;
+  const svg = document.getElementById("chart");
+  let out = "";
+  // gridlines: x at each res tier, y decades
+  for (const [w, h] of RES) {
+    out += `<line class="grid" x1="${CX(w * h)}" y1="18" x2="${CX(w * h)}" y2="262"/>`;
+  }
+  for (const s of [0.1, 1, 10]) {
+    out += `<line class="grid" x1="56" y1="${CY(s)}" x2="646" y2="${CY(s)}"/>`;
+    out += `<text class="axis-label" x="24" y="${CY(s) + 3}">${s >= 1 ? s + " s" : "0.1 s"}</text>`;
+  }
+  out += `<text class="axis-label" x="${CX(76800) - 22}" y="280">320\u00d7240</text>`;
+  out += `<text class="axis-label" x="${CX(1280 * 960) - 22}" y="280">1280\u00d7960</text>`;
+  out += `<text class="axis-label" x="${CX(3840 * 2880) - 12}" y="280">4K</text>`;
+  out += `<text class="axis-label" x="${CX(44236800) - 12}" y="280">8K</text>`;
+  const [selW, selH] = RES[ri];
+  out += `<line class="marker-line" x1="${CX(selW * selH)}" y1="18" x2="${CX(selW * selH)}" y2="262"/>`;
+  for (const t of ["erlang", "node", "zig"]) {
+    const pts = RES.map(([w, h]) => [w * h, lookup.get(`${t}|${w}|${b}`)]).filter(p => p[1] != null);
+    if (!pts.length) continue;
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${CX(p[0]).toFixed(1)},${CY(p[1]).toFixed(1)}`).join("");
+    out += `<path class="line ${t}" d="${d}"/>`;
+    const last = pts[pts.length - 1];
+    if (pts.length < RES.length) {
+      out += `<circle cx="${CX(last[0])}" cy="${CY(last[1])}" r="3.5" fill="#5a6472"/>`;
+      out += `<text class="stop" x="${CX(last[0]) + 8}" y="${CY(last[1]) + 4}">${t} stops here</text>`;
+    } else {
+      out += `<text class="series-label ${t}" x="${CX(last[0]) - 30}" y="${CY(last[1]) - 12}">${t}</text>`;
+    }
+    const sel = pts.find(p => p[0] === selW * selH);
+    if (sel) out += `<circle class="marker" cx="${CX(sel[0])}" cy="${CY(sel[1])}" r="4.5" fill="${t === "zig" ? "var(--amber)" : "#5a6472"}"/>`;
+  }
+  svg.innerHTML = out;
+}
+
+const _update = update;
+update = function () { _update(); drawChart(+document.getElementById("bounces").value); };
+
 document.getElementById("res").addEventListener("input", update);
 document.getElementById("bounces").addEventListener("input", update);
 update();
