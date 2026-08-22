@@ -450,7 +450,7 @@ git clone https://github.com/escherize/gleam-zig-workspace workspace
 git clone https://github.com/escherize/gleam-zig gleam
 git clone https://github.com/escherize/gleam-zig-stdlib gleam-stdlib
 
-<span class="cm"># pin zig 0.16.0 (the one toolchain the runtime is tested against)</span>
+<span class="cm"># zig 0.16.0 is fetched automatically on first run (manual install optional, below)</span>
 mkdir toolchain &amp;&amp; <span class="pr">cd</span> toolchain
 curl -O https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz
 tar xf zig-aarch64-macos-0.16.0.tar.xz &amp;&amp; <span class="pr">cd</span> ..
@@ -491,7 +491,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 ../gleam/target/debug/gleam export zig-executable --target-triple x86_64-linux --out app-linux</pre>
       <button class="copy" aria-label="Copy run and export commands" data-copy>3</button>
     </div>
-    <p>Toolchain auto-fetch is tracked but not built <span class="planned">planned · issue #12</span> — today you download the pinned Zig once and set <code>GLEAM_ZIG</code>.</p>
+    <p>On first use of a zig-target command the compiler fetches and sha256-verifies the pinned Zig 0.16.0 into gleam's cache — no setup step. <code>GLEAM_ZIG</code> remains an explicit override (CI, hermetic setups), and a <code>zig</code> on PATH reporting exactly 0.16.0 is used as-is.</p>
     <div class="note"><strong>Fails loud.</strong> Anything the backend can't compile panics at build time with the construct named — nothing is silently mistranslated. That property is what makes the verification below meaningful.</div>
   </section>
 

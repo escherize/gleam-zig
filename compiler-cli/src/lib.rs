@@ -82,6 +82,7 @@ mod publish;
 mod remove;
 pub mod run;
 mod shell;
+mod zig_toolchain;
 mod text_layout;
 
 use config::root_config;

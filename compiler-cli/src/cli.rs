@@ -126,6 +126,10 @@ fn print_downloading(text: &str) {
     print_colourful_prefix("Downloading", text);
 }
 
+pub fn print_downloading_zig(version: &str) {
+    print_colourful_prefix("Downloading", &format!("zig {version}"));
+}
+
 fn print_waiting_for_build_directory_lock() {
     print_colourful_prefix("Waiting", "for build directory lock");
 }

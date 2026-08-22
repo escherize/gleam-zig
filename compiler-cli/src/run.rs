@@ -280,8 +280,9 @@ pub fn main(init: std.process.Init.Minimal) void {{
         .join(format!("entrypoint@{}.zig", module.replace('/', "@")));
     crate::fs::write(&path, &entrypoint)?;
 
-    // The zig toolchain is not assumed to be on PATH; GLEAM_ZIG overrides.
-    let program = std::env::var("GLEAM_ZIG").unwrap_or_else(|_| "zig".into());
+    // The zig toolchain resolves from GLEAM_ZIG, the cache, a pinned PATH
+    // probe, or a verified download, in that order.
+    let program = crate::zig_toolchain::ensure_zig()?.into_string();
 
     let mut args = vec!["run".to_string(), path.to_string()];
     if !arguments.is_empty() {

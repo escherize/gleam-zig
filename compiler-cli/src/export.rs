@@ -562,7 +562,7 @@ pub fn main(init: std.process.Init.Minimal) void {{
     fs::write(&entrypoint_path, &entrypoint)?;
 
     let output = output.unwrap_or_else(|| Utf8PathBuf::from(package_name.as_str()));
-    let zig = std::env::var("GLEAM_ZIG").unwrap_or_else(|_| "zig".into());
+    let zig = crate::zig_toolchain::ensure_zig()?;
     let mut command = std::process::Command::new(&zig);
     let _ = command
         .arg("build-exe")
@@ -575,12 +575,12 @@ pub fn main(init: std.process.Init.Minimal) void {{
     }
     let status = command.status()
         .map_err(|error| gleam_core::Error::ShellCommand {
-            program: zig.clone(),
+            program: zig.to_string(),
             reason: gleam_core::error::ShellCommandFailureReason::IoError(error.kind()),
         })?;
     if !status.success() {
         return Err(gleam_core::Error::ShellCommand {
-            program: zig,
+            program: zig.into_string(),
             reason: gleam_core::error::ShellCommandFailureReason::Unknown,
         });
     }

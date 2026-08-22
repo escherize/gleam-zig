@@ -304,6 +304,9 @@ file_names.iter().map(|x| x.as_str()).join(", "))]
         error: String,
     },
 
+    #[error("zig toolchain setup failed")]
+    ZigToolchain { action: String, detail: String },
+
     #[error("{0}")]
     Http(String),
 
@@ -2157,6 +2160,17 @@ The error from the package manager client was:
                 );
                 vec![Diagnostic {
                     title: "Failed to download package".into(),
+                    text,
+                    hint: None,
+                    location: None,
+                    level: Level::Error,
+                }]
+            }
+
+            Error::ZigToolchain { action, detail } => {
+                let text = format!("{action} failed:\n\n    {detail}");
+                vec![Diagnostic {
+                    title: "Failed to set up the zig toolchain".into(),
                     text,
                     hint: None,
                     location: None,

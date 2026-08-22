@@ -64,7 +64,8 @@ target = "zig"
 gleam_stdlib = { path = "../gleam-zig-stdlib" }
 ```
 
-Run it (`GLEAM_ZIG` points at the zig binary; defaults to `zig` on PATH):
+Run it (unset `GLEAM_ZIG` means the compiler uses or fetches the pinned
+0.16.0 automatically; `GLEAM_ZIG` overrides all of that):
 
 ```sh
 GLEAM_ZIG=/path/to/zig-0.16.0/zig gleam run --target zig
