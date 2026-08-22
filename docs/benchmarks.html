@@ -540,19 +540,19 @@ provenance.
 </section>
 
 <section class="dossier" id="d-dict">
-  <h2>Dictionary <span class="verdict lost">— the loss: 16&times; slower than both JITs</span></h2>
+  <h2>Dictionary <span class="verdict">— zig 6&times; node, 10&times; the BEAM</span></h2>
   <p class="lede" style="margin-top:14px">Ten thousand keys inserted into a map, then every one looked up again. The workload every real program does — indexing data — and the worst thing this target currently does.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:100%"></div><span class="t">1.12 s</span><span class="m">36 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:6%"></div><span class="t">0.07 s</span><span class="m">56 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:10%"></div><span class="t">0.11 s</span><span class="m">100 MB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:10%"></div><span class="t">0.011 s</span><span class="m">8 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:64%"></div><span class="t">0.07 s</span><span class="m">56 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.11 s</span><span class="m">100 MB</span></div>
   </div></div>
-  <div class="prose"><p><strong>Why it loses, plainly:</strong> <code>gleam/dict</code> on this target is an insertion-ordered association list. Every <code>insert</code> scans for an existing key and every <code>get</code> scans to find one, so the whole workload is O(n&sup2;) where node's <code>Map</code> and the BEAM's hash maps are O(1) amortised. Nothing about the compiler is at fault here and no codegen optimisation can rescue it — it is a data structure that has not been written yet. The fix is porting the HAMT the JavaScript target already uses, and this row exists so that work has a number to move.</p>
-  <p>It is on the board for the same reason the vector-records row was before the flat ABI answered it: a benchmark set with no losses in it is a marketing page, not a measurement.</p></div>
+  <div class="prose"><p><strong>How it was won:</strong> until this row appeared on the board, <code>gleam/dict</code> on this target was an insertion-ordered association list — every <code>insert</code> scanned for an existing key and every <code>get</code> scanned to find one, so the workload was O(n&sup2;) against two real hash maps. No codegen work could have rescued that; it was a data structure that had not been written. It is now a hash array mapped trie, the same structure the JavaScript target uses: five hash bits per level, 32-way branching, so a lookup touches three or four nodes and an insert copies one node per level instead of the whole dict.</p>
+  <p>The nodes are ordinary reference-counted values, so the runtime's existing memory discipline covers the trie with no new lifetime rules — the leak gate checks it on every corpus run like everything else. One semantic consequence, stated plainly: iteration order is hash order now rather than insertion order. That order was always unspecified and differs on all three targets; the new one happens to agree with erlang where the old one happened to agree with V8.</p></div>
   <div class="history">
-    <div class="hstep now"><div class="hv">1.12 s</div><div class="hl">assoc list, O(n) per op — today</div></div>
+    <div class="hstep"><div class="hv">1.12 s</div><div class="hl">assoc list, O(n) per op</div></div>
     <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">?</div><div class="hl">HAMT port, issue #8 — not started</div></div>
+    <div class="hstep now"><div class="hv">0.011 s</div><div class="hl">HAMT, 08-21 — 100&times;</div></div>
   </div>
 </section>
 
@@ -723,7 +723,7 @@ python3 examples/harness.py examples/benchmarks/coin_change.gleam</pre>
 <footer>
   <div class="shell">
     <p class="colophon">gleam-zig — an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">f34910891</b>.</p>
+    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">6fa94bd11</b>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">

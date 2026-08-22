@@ -526,10 +526,10 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
         <div class="lane"><span class="who">erlang</span><div class="bar" style="width:41%"></div><span class="t">0.12 s</span><span class="m">132 MB</span></div>
       </div>
       <div class="brow">
-        <div class="bhead"><span class="bname">Dictionary</span><span class="bwhat">10,000 keys inserted, then all looked up</span><span class="bwin lost">the loss: both JITs have real hash maps</span></div>
-        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:100%"></div><span class="t">1.12 s</span><span class="m">36 MB</span></div>
-        <div class="lane"><span class="who">node</span><div class="bar" style="width:6%"></div><span class="t">0.07 s</span><span class="m">56 MB</span></div>
-        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:10%"></div><span class="t">0.11 s</span><span class="m">100 MB</span></div>
+        <div class="bhead"><span class="bname">Dictionary</span><span class="bwhat">10,000 keys inserted, then all looked up</span><span class="bwin">zig 6&times; node, 10&times; the BEAM — HAMT</span></div>
+        <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:10%"></div><span class="t">0.011 s</span><span class="m">8 MB</span></div>
+        <div class="lane"><span class="who">node</span><div class="bar" style="width:64%"></div><span class="t">0.07 s</span><span class="m">56 MB</span></div>
+        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.11 s</span><span class="m">100 MB</span></div>
       </div>
       <div class="brow">
         <div class="bhead"><span class="bname">Ray tracer</span><span class="bwhat">320&times;240, 3 bounces, byte-identical PPM</span><span class="bwin">zig 1.9&times; node, 4.7&times; the BEAM</span></div>
@@ -549,11 +549,11 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
         <div class="lane"><span class="who">node</span><div class="bar" style="width:46%"></div><span class="t">0.06 s</span><span class="m">52 MB</span></div>
         <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.13 s</span><span class="m">82 MB</span></div>
       </div>
-      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-21 at <span class="num">f34910891</span> — zig as a ReleaseFast static binary, node 22 and erl (OTP 27) invoked directly on built output; BEAM figures are CPU time, excluding ~1 s VM boot; outputs diffed byte-for-byte first</span></div>
+      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-21 at <span class="num">6fa94bd11</span> — zig as a ReleaseFast static binary, node 22 and erl (OTP 27) invoked directly on built output; BEAM figures are CPU time, excluding ~1 s VM boot; outputs diffed byte-for-byte first</span></div>
     </div>
     <p style="margin-top:18px"><a class="btn btn-primary" style="display:inline-flex" href="benchmarks.html">Every number, opened up — full dossiers
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a></p>
-    <p>What moved the needle, in order: unboxed scalars and a raw native ABI, record/tuple reuse with borrowed field access, killing an mmap-per-allocation scratch allocator, a borrowed parameter ABI, capacity-tracked in-place string append, per-clause last-use moves, self-recursive borrowing (a greatest-fixpoint inference that lets recursion pass references without counting), inline field storage for small records, and a flat record ABI that keeps scalar records in registers — each verified against the full corpus under the leak gate before it landed. Four rows are wins on CPU and every row on memory. The fifth is the honest loss and the most useful row on the board: <code>gleam/dict</code> here is still an insertion-ordered assoc list, so it is O(n) per operation where both JITs have real hash maps. The HAMT port is the next piece of work, and this row is how it will be judged.</p>
+    <p>What moved the needle, in order: unboxed scalars and a raw native ABI, record/tuple reuse with borrowed field access, killing an mmap-per-allocation scratch allocator, a borrowed parameter ABI, capacity-tracked in-place string append, per-clause last-use moves, self-recursive borrowing (a greatest-fixpoint inference that lets recursion pass references without counting), inline field storage for small records, and a flat record ABI that keeps scalar records in registers, and a HAMT for dictionaries — each verified against the full corpus under the leak gate before it landed. Every row is a win on CPU and on memory. The dictionary row was a 16&times; loss this morning — an insertion-ordered assoc list against two real hash maps — until the HAMT landed and took it to 0.011 s. The caveats that remain are semantic rather than performance: integers are i64 rather than bignums, and hash iteration order is unspecified (it now matches erlang's, where the assoc list happened to match V8's).</p>
   </section>
 
   <section id="runtime">
@@ -706,7 +706,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 <footer>
   <div class="shell">
     <p class="colophon">gleam-zig — an unofficial Gleam → Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">f34910891</b>, corpus harness in <a href="https://github.com/escherize/gleam-zig-workspace">gleam-zig-workspace</a>.</p>
+    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">6fa94bd11</b>, corpus harness in <a href="https://github.com/escherize/gleam-zig-workspace">gleam-zig-workspace</a>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">
