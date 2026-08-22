@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>A ray tracer in Gleam, but 18&times; faster</title>
-<meta name="description" content="The same 200-line pure-Gleam ray tracer, byte-identical output, 18&times; faster than the BEAM as a 399 KB native binary — via the gleam-zig compiler fork.">
+<title>gleam-zig ray tracer explorer — resolution &times; bounces, measured</title>
+<meta name="description" content="Turn the knobs: the same Gleam ray tracer measured across resolutions up to 8K and up to 10 reflection bounces, on zig, node, and the BEAM. Every number a real run.">
 <link rel="icon" href="assets/zig-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -394,14 +394,15 @@
   .harrow { display: flex; align-items: center; padding: 0 4px; color: var(--faint); }
   @media (max-width: 640px) { .harrow { display: none; } .history { gap: 8px; } }
 
-  .triptych { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--seam-soft); border: 1px solid var(--seam); border-radius: 12px; overflow: hidden; margin-top: 26px; }
-  @media (max-width: 640px) { .triptych { grid-template-columns: 1fr; } }
-  .triptych figure { margin: 0; background: var(--panel); }
-  .triptych img { display: block; width: 100%; height: auto; image-rendering: auto; }
-  .triptych figcaption { font-family: var(--font-mono); font-size: 11px; color: var(--dim); padding: 8px 12px; border-top: 1px solid var(--seam-soft); display: flex; justify-content: space-between; gap: 8px; }
-  .triptych figcaption b { font-weight: 600; }
-  .triptych figure.z figcaption b { color: var(--amber); }
-  .trip-note { font-family: var(--font-mono); font-size: 11.5px; color: var(--faint); margin-top: 8px; }
+  .knobs { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-top: 26px; }
+  @media (max-width: 640px) { .knobs { grid-template-columns: 1fr; } }
+  .knob label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); display: flex; justify-content: space-between; }
+  .knob label b { color: var(--amber); font-size: 13px; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+  .knob input[type=range] { width: 100%; margin-top: 10px; accent-color: var(--amber); }
+  .cell { margin-top: 22px; }
+  .cell .lane { grid-template-columns: 52px minmax(0, 1fr) 96px 110px; }
+  .cell .lane .m { color: var(--faint); }
+  .foot-note { font-family: var(--font-mono); font-size: 11.5px; color: var(--faint); margin-top: 10px; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -417,9 +418,8 @@
       gleam<b>-zig</b>
     </a>
     <nav class="nav-links" aria-label="Sections">
-      <a href="index.html#start">start</a>
+      <a href="raytracer-post.html">the field note</a>
       <a href="benchmarks.html">benchmarks</a>
-      <a href="index.html#limits">limits</a>
       <a class="gh" href="https://github.com/escherize/gleam-zig">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
         GitHub
@@ -430,74 +430,36 @@
 
 <div class="shell"><main style="max-width:760px;margin:0 auto">
 <div class="hero" style="padding-top:48px;padding-bottom:0">
-  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint)">2026-08-21 &middot; a gleam-zig field note</p>
-  <h1 class="hero-title" style="max-width:24ch;margin-top:10px">A ray tracer in <span class="src">Gleam</span>, but <span class="out">18&times; faster</span>.</h1>
-  <p class="hero-sub" style="margin-top:16px">Same 200 lines of pure standard-library Gleam. Same image, byte for byte. 18&times; is against the BEAM — where Gleam programs actually live; against V8 it's 1.5&times;, in a tenth of the memory. The only thing that changed is the machine underneath.</p>
+  <h1 class="hero-title" style="max-width:22ch">Turn the knobs.</h1>
+  <p class="hero-sub" style="margin-top:14px">The same <a href="raytracer-post.html">200-line Gleam ray tracer</a>, measured across every combination below — resolution up to 8K, up to ten reflection bounces, on all three machines. Every number you can select is a real run; where a cell would have taken a target minutes per render, it says so instead of guessing.</p>
 </div>
 
-<div class="triptych" role="group" aria-label="The same render from all three targets">
-  <figure>
-    <img src="assets/raytracer-erlang.png" width="320" height="240" alt="Ray-traced scene of reflective spheres on a checkered floor, rendered by the Erlang target">
-    <figcaption><span><b>erlang</b> / OTP 27</span><span class="num">1.48 s</span></figcaption>
-  </figure>
-  <figure>
-    <img src="assets/raytracer-node.png" width="320" height="240" alt="The identical ray-traced scene, rendered by the JavaScript target on node">
-    <figcaption><span><b>node</b> 22</span><span class="num">0.12 s</span></figcaption>
-  </figure>
-  <figure class="z">
-    <img src="assets/raytracer-zig.png" width="320" height="240" alt="The identical ray-traced scene, rendered by the gleam-zig native binary">
-    <figcaption><span><b>zig</b> static binary</span><span class="num">0.08 s</span></figcaption>
-  </figure>
-</div>
-<p class="trip-note">Three separate renders, one from each target. Spot the difference — you can't: all three PPMs hash to <span class="num">7a452dda1311ec87af42a1e22ba1367c</span>.</p>
-
-<section style="padding-top:34px">
-  <p class="lede">Gleam programs live on the BEAM. This one — spheres, a floor, hard shadows, reflections, PPM to stdout — renders there in <span class="num">1.48 s</span>. Compile the identical source with the <a href="index.html">gleam-zig</a> fork instead and you get a <span class="num">399 KB</span> static binary that renders the identical image in <span class="num">0.08 s</span>:</p>
-
-  <div class="panel bench" style="margin-top:20px"><div class="brow">
-    <div class="bhead"><span class="bname">320&times;240, 3 bounces</span><span class="bwhat">md5 of the output identical on every row</span><span class="bwin">18&times; the BEAM, 1.5&times; node</span></div>
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:5%"></div><span class="t">0.08 s</span><span class="m">6 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:8%"></div><span class="t">0.12 s</span><span class="m">65 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">1.48 s</span><span class="m">104 MB</span></div>
-  </div></div>
-
-  <p>The memory column is arguably the ruder comparison: the native render peaks at <span class="num">6 MB</span> against the BEAM's <span class="num">104 MB</span> and node's <span class="num">65 MB</span> — 17&times; and 10&times; less — and the thing you ship is a <span class="num">399 KB</span> file, not a runtime the target machine has to have installed.</p>
-  <p>And since this week the whole thing is one command on one file — no project, no manifest:</p>
-  <div class="codewrap">
-<pre class="block"><span class="cmt"># one gleam file in, one native binary out</span>
-gleam export zig-executable raytracer.gleam --out rt
-./rt &gt; image.ppm
-<span class="cmt"># or one portable source file anyone can run with just a zig toolchain</span>
-gleam export zig-source raytracer.gleam --out rt.zig</pre>
-    <button class="copy" aria-label="Copy the commands" data-copy></button>
+<section style="padding-top:26px">
+  <div class="knobs">
+    <div class="knob">
+      <label>resolution <b id="res-label">320 &times; 240</b></label>
+      <input type="range" id="res" min="0" max="5" step="1" value="0" aria-label="Resolution">
+    </div>
+    <div class="knob">
+      <label>reflection bounces <b id="b-label">3</b></label>
+      <input type="range" id="bounces" min="0" max="4" step="1" value="2" aria-label="Reflection bounces">
+    </div>
   </div>
 
-  <p>The code, both sides of the compile: <a href="https://github.com/escherize/gleam-zig-workspace/blob/main/examples/demo/raytracer/src/raytracer.gleam">raytracer.gleam</a> — the 200-line source — and <a href="https://github.com/escherize/gleam-zig-workspace/blob/main/examples/demo/raytracer/raytracer-single.zig">raytracer-single.zig</a>, the entire emitted program (modules, runtime, entrypoint) as the one file <code>zig-source</code> produces. Read what the compiler actually wrote.</p>
-
-  <h3>Where the 18&times; came from</h3>
-  <p>Not from one trick. The compiler emits readable Zig with compile-time reference counting instead of a GC, and the number fell over three days of measured steps, each one gated on a 124-program corpus that byte-diffs against the official compiler under a leak checker:</p>
-  <div class="history" style="margin-top:14px">
-    <div class="hstep"><div class="hv">0.66 s</div><div class="hl">boxed everything</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.49 s</div><div class="hl">record reuse + borrowed field reads</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.14 s</div><div class="hl">scratch allocator off mmap</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.12 s</div><div class="hl">borrowed ABI + raw guards</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.08 s</div><div class="hl">inline record fields</div></div>
+  <div class="panel bench cell"><div class="brow">
+    <div class="bhead"><span class="bname" id="cell-name">320&times;240 &middot; 3 bounces</span><span class="bwhat" id="cell-px">76,800 pixels</span><span class="bwin" id="cell-win"></span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" id="bar-zig"></div><span class="t" id="t-zig">—</span><span class="m" id="r-zig"></span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" id="bar-node"></div><span class="t" id="t-node">—</span><span class="m" id="r-node"></span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" id="bar-erlang"></div><span class="t" id="t-erlang">—</span><span class="m" id="r-erlang"></span></div>
   </div>
-  <p>Unboxed scalars, functions that borrow instead of counting, vectors whose matched cells are rewritten in place, records that keep their fields inline — and one genuine embarrassment: a third of the runtime turned out to be 230,000 <code>mmap</code> calls from a scratch allocator, misdiagnosed for a day as "output writes". The <a href="benchmarks.html">benchmark dossiers</a> open every one of these up, losses included: allocation churn still goes to the BEAM's JIT by 1.3&times; on one microbenchmark, and integers here are i64, not bignums.</p>
-
-  <h3>Why "byte for byte" is the interesting part</h3>
-  <p>The speed claim is only worth something because the correctness claim is checked first. Every run of this program on erlang, javascript, and zig produces a PPM with md5 <code class="num">7a452dda1311ec87af42a1e22ba1367c</code>, and every zig binary in the test corpus counts its allocations and fails if one is still live at exit. Fast came second.</p>
-
-  <p>Want to turn the knobs yourself? The <a href="explorer.html">explorer</a> has this render measured at every resolution up to 8K and up to ten bounces — including the cells where only the native binary was willing to finish.</p>
+  <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">wall time, Apple M-series, 2026-08-21 — best of 3 through 1280&times;960, single run above; zig as a ReleaseFast binary rebuilt per cell; node and erl on built output; erlang cells include ~1 s VM boot</span></div>
+  </div>
+  <p class="foot-note" id="coverage-note">zig is measured at every cell. node is measured up to 3840&times;2880 and erlang up to 1280&times;960 — beyond that a single BEAM render crosses into minutes, so those cells are marked "not measured" rather than extrapolated.</p>
 
   <div class="hero-cta" style="margin-top:30px">
-    <a class="btn btn-primary" href="index.html#start">Try it
+    <a class="btn btn-primary" href="raytracer-post.html">The field note
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-    <a class="btn btn-ghost" href="benchmarks.html">The full dossiers</a>
+    <a class="btn btn-ghost" href="benchmarks.html">All benchmarks</a>
   </div>
 </section>
 </main></div>
@@ -505,7 +467,7 @@ gleam export zig-source raytracer.gleam --out rt.zig</pre>
 <footer>
   <div class="shell">
     <p class="colophon">gleam-zig — an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers measured 2026-08-21, compiler fork <b class="num">89f6e29a7</b>; method on the <a href="benchmarks.html#method">benchmarks page</a>.</p>
+    Matrix measured 2026-08-21; harness in the workspace repo.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">
@@ -514,18 +476,65 @@ gleam export zig-source raytracer.gleam --out rt.zig</pre>
 </footer>
 
 <script>
-  const copyIcon = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" stroke="currentColor" stroke-width="1.4"/></svg>';
-  const checkIcon = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  document.querySelectorAll('[data-copy]').forEach(btn => {
-    btn.innerHTML = copyIcon;
-    btn.addEventListener('click', async () => {
-      const pre = btn.parentElement.querySelector('pre');
-      const text = pre.innerText.split('\n').filter(l => !l.trimStart().startsWith('#')).join('\n').trim();
-      try { await navigator.clipboard.writeText(text); } catch (e) {}
-      btn.innerHTML = checkIcon; btn.classList.add('done');
-      setTimeout(() => { btn.innerHTML = copyIcon; btn.classList.remove('done'); }, 1600);
-    });
-  });
+const DATA = [{"target":"erlang","w":320,"h":240,"bounces":1,"seconds":1.281},{"target":"node","w":320,"h":240,"bounces":1,"seconds":0.106},{"target":"zig","w":320,"h":240,"bounces":1,"seconds":0.071},{"target":"erlang","w":320,"h":240,"bounces":2,"seconds":1.307},{"target":"node","w":320,"h":240,"bounces":2,"seconds":0.112},{"target":"zig","w":320,"h":240,"bounces":2,"seconds":0.078},{"target":"erlang","w":320,"h":240,"bounces":3,"seconds":1.312},{"target":"node","w":320,"h":240,"bounces":3,"seconds":0.116},{"target":"zig","w":320,"h":240,"bounces":3,"seconds":0.083},{"target":"erlang","w":320,"h":240,"bounces":5,"seconds":1.319},{"target":"node","w":320,"h":240,"bounces":5,"seconds":0.121},{"target":"zig","w":320,"h":240,"bounces":5,"seconds":0.085},{"target":"erlang","w":320,"h":240,"bounces":10,"seconds":1.326},{"target":"node","w":320,"h":240,"bounces":10,"seconds":0.122},{"target":"zig","w":320,"h":240,"bounces":10,"seconds":0.087},{"target":"erlang","w":640,"h":480,"bounces":1,"seconds":1.848},{"target":"node","w":640,"h":480,"bounces":1,"seconds":0.298},{"target":"zig","w":640,"h":480,"bounces":1,"seconds":0.28},{"target":"erlang","w":640,"h":480,"bounces":2,"seconds":1.919},{"target":"node","w":640,"h":480,"bounces":2,"seconds":0.332},{"target":"zig","w":640,"h":480,"bounces":2,"seconds":0.319},{"target":"erlang","w":640,"h":480,"bounces":3,"seconds":1.965},{"target":"node","w":640,"h":480,"bounces":3,"seconds":0.345},{"target":"zig","w":640,"h":480,"bounces":3,"seconds":0.33},{"target":"erlang","w":640,"h":480,"bounces":5,"seconds":1.994},{"target":"node","w":640,"h":480,"bounces":5,"seconds":0.362},{"target":"zig","w":640,"h":480,"bounces":5,"seconds":0.342},{"target":"erlang","w":640,"h":480,"bounces":10,"seconds":2.0},{"target":"node","w":640,"h":480,"bounces":10,"seconds":0.365},{"target":"zig","w":640,"h":480,"bounces":10,"seconds":0.35},{"target":"erlang","w":1280,"h":960,"bounces":1,"seconds":4.089},{"target":"node","w":1280,"h":960,"bounces":1,"seconds":1.052},{"target":"zig","w":1280,"h":960,"bounces":1,"seconds":1.15},{"target":"erlang","w":1280,"h":960,"bounces":2,"seconds":4.453},{"target":"node","w":1280,"h":960,"bounces":2,"seconds":1.198},{"target":"zig","w":1280,"h":960,"bounces":2,"seconds":1.29},{"target":"erlang","w":1280,"h":960,"bounces":3,"seconds":4.66},{"target":"node","w":1280,"h":960,"bounces":3,"seconds":1.253},{"target":"zig","w":1280,"h":960,"bounces":3,"seconds":1.343},{"target":"erlang","w":1280,"h":960,"bounces":5,"seconds":4.749},{"target":"node","w":1280,"h":960,"bounces":5,"seconds":1.285},{"target":"zig","w":1280,"h":960,"bounces":5,"seconds":1.39},{"target":"erlang","w":1280,"h":960,"bounces":10,"seconds":4.864},{"target":"node","w":1280,"h":960,"bounces":10,"seconds":1.33},{"target":"zig","w":1280,"h":960,"bounces":10,"seconds":1.424},{"target":"node","w":2560,"h":1920,"bounces":1,"seconds":4.341},{"target":"zig","w":2560,"h":1920,"bounces":1,"seconds":4.909},{"target":"node","w":2560,"h":1920,"bounces":2,"seconds":4.852},{"target":"zig","w":2560,"h":1920,"bounces":2,"seconds":5.48},{"target":"node","w":2560,"h":1920,"bounces":3,"seconds":5.131},{"target":"zig","w":2560,"h":1920,"bounces":3,"seconds":5.667},{"target":"node","w":2560,"h":1920,"bounces":5,"seconds":5.647},{"target":"zig","w":2560,"h":1920,"bounces":5,"seconds":5.88},{"target":"node","w":2560,"h":1920,"bounces":10,"seconds":5.582},{"target":"zig","w":2560,"h":1920,"bounces":10,"seconds":6.036},{"target":"node","w":3840,"h":2880,"bounces":1,"seconds":9.876},{"target":"zig","w":3840,"h":2880,"bounces":1,"seconds":10.944},{"target":"node","w":3840,"h":2880,"bounces":2,"seconds":11.054},{"target":"zig","w":3840,"h":2880,"bounces":2,"seconds":12.056},{"target":"node","w":3840,"h":2880,"bounces":3,"seconds":11.431},{"target":"zig","w":3840,"h":2880,"bounces":3,"seconds":12.571},{"target":"node","w":3840,"h":2880,"bounces":5,"seconds":11.859},{"target":"zig","w":3840,"h":2880,"bounces":5,"seconds":13.048},{"target":"node","w":3840,"h":2880,"bounces":10,"seconds":12.651},{"target":"zig","w":3840,"h":2880,"bounces":10,"seconds":13.414},{"target":"zig","w":7680,"h":5760,"bounces":1,"seconds":43.09},{"target":"zig","w":7680,"h":5760,"bounces":2,"seconds":48.123},{"target":"zig","w":7680,"h":5760,"bounces":3,"seconds":49.78},{"target":"zig","w":7680,"h":5760,"bounces":5,"seconds":51.573},{"target":"zig","w":7680,"h":5760,"bounces":10,"seconds":52.719}];
+const RES = [[320,240],[640,480],[1280,960],[2560,1920],[3840,2880],[7680,5760]];
+const RES_NAMES = ["320 \u00d7 240","640 \u00d7 480","1280 \u00d7 960","2560 \u00d7 1920","3840 \u00d7 2880 (4K)","7680 \u00d7 5760 (8K)"];
+const BOUNCES = [1,2,3,5,10];
+const lookup = new Map(DATA.map(d => [`${d.target}|${d.w}|${d.bounces}`, d.seconds]));
+
+function fmt(s) {
+  if (s == null) return null;
+  if (s >= 100) return Math.round(s) + " s";
+  if (s >= 10) return s.toFixed(1) + " s";
+  return s.toFixed(2) + " s";
+}
+
+function update() {
+  const ri = +document.getElementById("res").value;
+  const bi = +document.getElementById("bounces").value;
+  const [w, h] = RES[ri];
+  const b = BOUNCES[bi];
+  document.getElementById("res-label").innerHTML = RES_NAMES[ri];
+  document.getElementById("b-label").textContent = b;
+  document.getElementById("cell-name").innerHTML = `${w}\u00d7${h} \u00b7 ${b} bounce${b > 1 ? "s" : ""}`;
+  document.getElementById("cell-px").textContent = (w * h).toLocaleString() + " pixels";
+  const times = {};
+  for (const t of ["zig", "node", "erlang"]) times[t] = lookup.get(`${t}|${w}|${b}`) ?? null;
+  const max = Math.max(...Object.values(times).filter(v => v != null));
+  for (const t of ["zig", "node", "erlang"]) {
+    const bar = document.getElementById("bar-" + t);
+    const label = document.getElementById("t-" + t);
+    const rate = document.getElementById("r-" + t);
+    if (times[t] == null) {
+      bar.style.width = "0"; bar.style.opacity = "0.25";
+      label.textContent = "—";
+      rate.textContent = "not measured";
+    } else {
+      bar.style.opacity = "1";
+      bar.style.width = Math.max(2, times[t] / max * 100) + "%";
+      label.textContent = fmt(times[t]);
+      rate.textContent = ((w * h) / times[t] / 1e6).toFixed(1) + " Mpx/s";
+    }
+  }
+  const win = document.getElementById("cell-win");
+  if (times.zig != null) {
+    const others = ["node", "erlang"].filter(t => times[t] != null);
+    if (others.length) {
+      const best = Math.min(...others.map(t => times[t]));
+      const ratio = best / times.zig;
+      win.textContent = ratio >= 1
+        ? `zig ${ratio.toFixed(1)}\u00d7 the best JIT here`
+        : `the JITs lead this cell by ${(1 / ratio).toFixed(1)}\u00d7`;
+      win.classList.toggle("lost", ratio < 1);
+    } else {
+      win.textContent = "only zig was willing to render this";
+      win.classList.remove("lost");
+    }
+  }
+}
+document.getElementById("res").addEventListener("input", update);
+document.getElementById("bounces").addEventListener("input", update);
+update();
 </script>
 
 </body>

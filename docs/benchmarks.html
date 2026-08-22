@@ -605,6 +605,7 @@ provenance.
       </div>
     </div>
   </div>
+  <p style="margin-top:14px"><a href="explorer.html">Turn the knobs</a>: this render measured across resolutions to 8K and bounces to 10.</p>
   <div class="prose"><p><strong>Why it's fast — eventually:</strong> this number took six optimizations and one wrong diagnosis. The hot path is <code>Vec</code> record math; the wins came from borrowed field reads (no refcount round-trip per <code>v.x</code>), in-place record reuse in pattern-matched constructions, a borrowed parameter ABI for the vector helpers, and — the day's embarrassment — discovering that a third of the runtime was 230,000 <code>mmap</code> syscalls from a scratch allocator, misdiagnosed the previous night as "output writes". Inline field storage for small records closed the final gap past V8.</p></div>
   <div class="history">
     <div class="hstep"><div class="hv">0.66 s</div><div class="hl">boxed everything</div></div>
