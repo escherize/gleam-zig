@@ -78,6 +78,101 @@ fn scalar_kind(type_: &crate::type_::Type) -> Option<ScalarKind> {
     }
 }
 
+
+/// A single-constructor record type whose fields are all concrete
+/// scalars: it can travel as a flat zig struct (fields in registers)
+/// instead of a reference-counted heap record. Boxing/unboxing helpers
+/// bridge to the uniform `Value` at every polymorphic boundary, so the
+/// representation is an optimisation, never a semantic change.
+#[derive(Clone)]
+struct FlatType {
+    /// The constructor (and type) name, e.g. "Vec".
+    name: EcoString,
+    /// Field kinds in declaration order.
+    fields: Vec<ScalarKind>,
+    /// Field labels, when the constructor has them (for boxing).
+    labels: Vec<Option<EcoString>>,
+}
+
+impl FlatType {
+    fn struct_name(&self) -> String {
+        zig_identifier(&format!("flat${}", self.name))
+    }
+    fn box_fn(&self) -> String {
+        zig_identifier(&format!("box${}", self.name))
+    }
+    fn unbox_fn(&self) -> String {
+        zig_identifier(&format!("unbox${}", self.name))
+    }
+    /// The zig declarations for this type: the struct plus its box and
+    /// unbox helpers.
+    fn declarations(&self) -> String {
+        let struct_name = self.struct_name();
+        let fields = self
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| {
+                format!("{INDENT}f{index}: {},\n", kind.zig_type())
+            })
+            .join("");
+        let labels = if self.labels.iter().all(|label| label.is_none()) {
+            "&[_]?[]const u8{}".to_string()
+        } else {
+            format!(
+                "&[_]?[]const u8{{ {} }}",
+                self.labels
+                    .iter()
+                    .map(|label| match label {
+                        Some(label) => format!("\"{label}\""),
+                        None => "null".to_string(),
+                    })
+                    .join(", ")
+            )
+        };
+        let boxed_fields = self
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| format!("{}(v.f{index})", kind.box_helper()))
+            .join(", ");
+        let unboxed_fields = self
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| {
+                format!(
+                    "{INDENT}{INDENT}.f{index} = (v.record.fields[{index}]).{},\n",
+                    kind.field()
+                )
+            })
+            .join("");
+        let name = &self.name;
+        format!(
+            "const {struct_name} = struct {{\n{fields}}};\n\n             fn {}(v: {struct_name}) Value {{\n             {INDENT}return P.makeRecordL(\"{name}\", &[_]Value{{ {boxed_fields} }}, {labels});\n}}\n\n             fn {}(v: Value) {struct_name} {{\n             {INDENT}const out = {struct_name}{{\n{unboxed_fields}{INDENT}}};\n             {INDENT}P.drop(v);\n{INDENT}return out;\n}}\n",
+            self.box_fn(),
+            self.unbox_fn(),
+        )
+    }
+}
+
+/// The flat type a Gleam type maps to, when it has one.
+fn flat_type_key(type_: &crate::type_::Type) -> Option<(EcoString, EcoString)> {
+    match type_ {
+        crate::type_::Type::Named {
+            module,
+            name,
+            arguments,
+            ..
+        } if arguments.is_empty() => Some((module.clone(), name.clone())),
+        crate::type_::Type::Var { type_ } => match &*type_.borrow() {
+            crate::type_::TypeVar::Link { type_ } => flat_type_key(type_),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 pub fn module(
     module: &TypedModule,
     line_numbers: &LineNumbers,
@@ -115,6 +210,43 @@ pub fn module(
             continue;
         };
         let _ = native_signatures.insert(name.clone(), (parameter_kinds, return_kind));
+    }
+
+    // Single-constructor, all-scalar-field types in this module travel
+    // flat: as zig structs with fields in registers. The map is keyed by
+    // constructor name; only same-module uses take the flat path, so
+    // cross-module callers and every polymorphic boundary keep the
+    // uniform boxed representation.
+    let mut flat_types: HashMap<EcoString, FlatType> = HashMap::new();
+    for custom_type in &module.definitions.custom_types {
+        if custom_type.external_zig.is_some() || custom_type.constructors.len() != 1 {
+            continue;
+        }
+        let constructor = &custom_type.constructors[0];
+        if constructor.arguments.is_empty() || constructor.arguments.len() > 8 {
+            continue;
+        }
+        let Some(fields) = constructor
+            .arguments
+            .iter()
+            .map(|argument| scalar_kind(&argument.type_))
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let labels = constructor
+            .arguments
+            .iter()
+            .map(|argument| argument.label.as_ref().map(|(_, label)| label.clone()))
+            .collect();
+        let _ = flat_types.insert(
+            constructor.name.clone(),
+            FlatType {
+                name: constructor.name.clone(),
+                fields,
+                labels,
+            },
+        );
     }
 
     // Functions whose parameters are only ever field-read get a borrowed
@@ -209,6 +341,43 @@ pub fn module(
         }
     }
 
+    // Functions with at least one flat-typed parameter or return get a
+    // `flat$name` variant taking/returning structs, plus the boxed
+    // function under the original name for every other caller. Scalar
+    // signatures already have the native ABI and keep it.
+    let mut flat_signatures: HashMap<EcoString, (Vec<Option<EcoString>>, Option<EcoString>)> =
+        HashMap::new();
+    for function in &module.definitions.functions {
+        let Some((_, name)) = &function.name else {
+            continue;
+        };
+        if function.external_zig.is_some()
+            || function.body.is_empty()
+            || !function.implementations.supports(crate::build::Target::Zig)
+            || native_signatures.contains_key(name)
+        {
+            continue;
+        }
+        let flat_of = |type_: &crate::type_::Type| -> Option<EcoString> {
+            let (module_name, type_name) = flat_type_key(type_)?;
+            if module_name != module.name {
+                return None;
+            }
+            // The constructor and the type share a name for the
+            // single-constructor types that qualify.
+            flat_types.get(&type_name).map(|flat| flat.name.clone())
+        };
+        let parameters: Vec<Option<EcoString>> = function
+            .arguments
+            .iter()
+            .map(|argument| flat_of(&argument.type_))
+            .collect();
+        let returns = flat_of(&function.return_type);
+        if parameters.iter().any(Option::is_some) || returns.is_some() {
+            let _ = flat_signatures.insert(name.clone(), (parameters, returns));
+        }
+    }
+
     let mut shared = ModuleContext {
         module_name: module.name.clone(),
         line_numbers,
@@ -221,9 +390,19 @@ pub fn module(
         ffi_imports: std::collections::BTreeMap::new(),
         native_signatures,
         borrowed_signatures,
+        flat_types,
+        flat_signatures,
     };
 
     let mut functions = String::new();
+    // Flat struct declarations and their box/unbox helpers come first;
+    // zig containers are order-independent, but keeping them at the top
+    // makes the generated file readable.
+    for name in shared.flat_types.keys().sorted() {
+        let flat = shared.flat_types.get(name).expect("iterating keys");
+        functions.push_str(&flat.declarations());
+        functions.push('\n');
+    }
     // Constants become zero-argument functions: their values may allocate
     // (records, lists), which zig cannot do in a comptime const initializer.
     for constant in &module.definitions.constants {
@@ -316,6 +495,13 @@ struct ModuleContext<'a> {
     /// borrowed arguments without taking a reference; the wrapper under
     /// the original name keeps the owned convention.
     borrowed_signatures: HashMap<EcoString, Vec<bool>>,
+    /// Constructor name -> flat struct representation, for
+    /// single-constructor all-scalar types defined in this module.
+    flat_types: HashMap<EcoString, FlatType>,
+    /// Module functions emitted with the flat ABI (`flat$name`):
+    /// name -> (parameter reps, return rep). A rep is Some(constructor)
+    /// when that position travels flat, None when it stays boxed.
+    flat_signatures: HashMap<EcoString, (Vec<Option<EcoString>>, Option<EcoString>)>,
 }
 
 impl ModuleContext<'_> {
@@ -393,6 +579,18 @@ struct FunctionGenerator<'a, 'm> {
     /// Set while generating a native-ABI function body: `return` exits
     /// unwrap their boxed value to this raw kind.
     native_return: Option<ScalarKind>,
+    /// Rendered binding names holding a flat struct, with its
+    /// constructor name. Flat bindings carry no references: no dup, no
+    /// drop; boxed on demand at polymorphic uses.
+    flat_bindings: HashMap<String, EcoString>,
+    /// Set while generating a flat-ABI function body: `return` exits
+    /// unbox their value into this flat struct.
+    flat_return: Option<EcoString>,
+    /// Source names a flat pattern bound to a struct or raw scalar,
+    /// drained when the clause's bindings are rendered (the rendered
+    /// name only exists after `bind`).
+    pending_flat_bindings: Vec<(EcoString, EcoString)>,
+    pending_raw_bindings: Vec<(EcoString, ScalarKind)>,
 }
 
 impl<'a, 'm> FunctionGenerator<'a, 'm> {
@@ -411,7 +609,81 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             raw_bindings: HashMap::new(),
             clause_moves: HashMap::new(),
             native_return: None,
+            flat_bindings: HashMap::new(),
+            flat_return: None,
+            pending_flat_bindings: Vec::new(),
+            pending_raw_bindings: Vec::new(),
         }
+    }
+
+    /// A field read off a flat struct local, boxed for a polymorphic
+    /// context. Returns None when the container is not a flat binding.
+    fn flat_field_access(&mut self, record: &TypedExpr, index: u64) -> Option<String> {
+        let TypedExpr::Var { name, .. } = record else {
+            return None;
+        };
+        let rendered = self.scope.get(name)?.clone();
+        let constructor = self.flat_bindings.get(&rendered)?.clone();
+        let flat = self.module.flat_types.get(&constructor)?;
+        let kind = *flat.fields.get(index as usize)?;
+        Some(format!("{}({rendered}.f{index})", kind.box_helper()))
+    }
+
+    /// The flat type of an expression, when this module has one for it.
+    fn flat_of(&self, expression: &TypedExpr) -> Option<FlatType> {
+        let (module_name, type_name) = flat_type_key(&expression.type_())?;
+        if module_name != self.module.module_name {
+            return None;
+        }
+        self.module.flat_types.get(&type_name).cloned()
+    }
+
+    /// Render an expression as a flat struct value. Total: anything
+    /// without a flat form renders boxed and unboxes (which consumes the
+    /// boxed value, so ownership still balances).
+    fn flat(&mut self, expression: &TypedExpr, flat: &FlatType, indent: &str) -> String {
+        // A live local already holding the struct.
+        if let TypedExpr::Var { name, .. } = expression {
+            if let Some(rendered) = self.scope.get(name) {
+                if self.flat_bindings.contains_key(rendered) {
+                    let rendered = rendered.clone();
+                    let _ = self.moved.remove(&rendered);
+                    return rendered;
+                }
+            }
+        }
+        // A construction of this very type: build the struct directly,
+        // never touching the allocator.
+        if let TypedExpr::Call { fun, arguments, .. } = expression {
+            let constructs = match fun.as_ref() {
+                TypedExpr::Var { constructor, .. } => matches!(
+                    &constructor.variant,
+                    ValueConstructorVariant::Record { name, .. } if *name == flat.name
+                ),
+                TypedExpr::ModuleSelect { constructor, .. } => matches!(
+                    constructor,
+                    ModuleValueConstructor::Record { name, .. } if *name == flat.name
+                ),
+                _ => false,
+            };
+            if constructs && arguments.len() == flat.fields.len() {
+                let fields = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        format!(".f{index} = {}", self.scalar(&argument.value, indent))
+                    })
+                    .join(", ");
+                return format!("{}{{ {fields} }}", flat.struct_name());
+            }
+        }
+        // A same-module flat-ABI call returning this type.
+        if let TypedExpr::Call { fun, arguments, .. } = expression {
+            if let Some(call) = self.flat_call(fun, arguments, indent) {
+                return call;
+            }
+        }
+        format!("{}({})", flat.unbox_fn(), self.expression(expression, indent))
     }
 
     fn function(&mut self, function: &TypedFunction) -> String {
@@ -482,6 +754,20 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 &parameter_names,
                 &parameter_kinds,
                 return_kind,
+                uses_tail_recursion,
+                visibility,
+            );
+        }
+
+        if let Some((parameters, returns)) =
+            self.module.flat_signatures.get(&name).cloned()
+        {
+            return self.flat_function(
+                &name,
+                function,
+                &parameter_names,
+                &parameters,
+                returns,
                 uses_tail_recursion,
                 visibility,
             );
@@ -839,7 +1125,17 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         // A raw scalar binding boxes on the way out.
                         let final_value = match self.raw_bindings.get(&final_value) {
                             Some(kind) => format!("{}({final_value})", kind.box_helper()),
-                            None => final_value,
+                            None => match self.flat_bindings.get(&final_value) {
+                                Some(constructor) if self.flat_return.is_none() => {
+                                    let flat = self
+                                        .module
+                                        .flat_types
+                                        .get(constructor)
+                                        .expect("flat binding names a flat type");
+                                    format!("{}({final_value})", flat.box_fn())
+                                }
+                                _ => final_value,
+                            },
                         };
                         let drops: Vec<String> =
                             own.iter().chain(pending_drops).cloned().collect();
@@ -938,6 +1234,36 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 _ => {}
             }
         }
+        // A flat-ABI return renders the struct directly: the exit path's
+        // generic unbox would otherwise box a record and immediately
+        // tear it apart again.
+        if tail == Tail::Return {
+            if let Some(constructor) = self.flat_return.clone() {
+                let flat = self
+                    .module
+                    .flat_types
+                    .get(&constructor)
+                    .expect("flat return names a flat type")
+                    .clone();
+                if flat_type_key(&expression.type_())
+                    .is_some_and(|(module, name)| {
+                        module == self.module.module_name && name == flat.name
+                    })
+                {
+                    let value = self.flat(expression, &flat, indent);
+                    if drops.is_empty() {
+                        return format!("{indent}return {value};\n");
+                    }
+                    let temporary = self.fresh_name("r");
+                    let mut out = format!("{indent}const {temporary} = {value};\n");
+                    for binding in drops {
+                        out.push_str(&format!("{indent}P.drop({binding});\n"));
+                    }
+                    out.push_str(&format!("{indent}return {temporary};\n"));
+                    return out;
+                }
+            }
+        }
         let value = self.expression(expression, indent);
         self.exit_value(&value, tail, indent, drops)
     }
@@ -954,6 +1280,37 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             (Tail::Return, Some(kind)) => Some(kind),
             _ => None,
         };
+        // A flat-ABI function returns a struct: values that are already
+        // flat structs pass through, boxed ones unbox.
+        if tail == Tail::Return && unbox.is_none() {
+            if let Some(constructor) = self.flat_return.clone() {
+                let flat = self
+                    .module
+                    .flat_types
+                    .get(&constructor)
+                    .expect("flat return names a flat type")
+                    .clone();
+                let is_flat = self.flat_bindings.contains_key(value)
+                    || value.starts_with(&flat.struct_name())
+                    || value.starts_with(&format!("{}(", zig_identifier("flat$")[..8].to_string()))
+                    || value.contains("flat$");
+                let result = if is_flat {
+                    value.to_string()
+                } else {
+                    format!("{}({value})", flat.unbox_fn())
+                };
+                if drops.is_empty() {
+                    return format!("{indent}return {result};\n");
+                }
+                let temporary = self.fresh_name("r");
+                let mut out = format!("{indent}const {temporary} = {result};\n");
+                for binding in drops {
+                    out.push_str(&format!("{indent}P.drop({binding});\n"));
+                }
+                out.push_str(&format!("{indent}return {temporary};\n"));
+                return out;
+            }
+        }
         if drops.is_empty() {
             return match unbox {
                 Some(kind) => format!("{indent}return ({value}).{};\n", kind.field()),
@@ -999,9 +1356,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let mut out = String::new();
         let mut temporaries = Vec::new();
         for argument in arguments.iter() {
-            // In a native-ABI function the loop locals are raw scalars.
+            // In a native-ABI function the loop locals are raw scalars;
+            // in a flat-ABI function the flat positions are structs.
             let value = if self.native_return.is_some() {
                 self.scalar(&argument.value, indent)
+            } else if let Some(flat) = self.flat_of(&argument.value) {
+                self.flat(&argument.value, &flat, indent)
             } else {
                 self.expression(&argument.value, indent)
             };
@@ -1029,6 +1389,27 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         indent: &str,
     ) -> (Vec<String>, String, Option<String>) {
         let is_let_assert = matches!(assignment.kind, AssignmentKind::Assert { .. });
+
+        // A simple binding of a flat-typed value becomes a struct local:
+        // no allocation, no reference counting, boxed on demand.
+        if let (Pattern::Variable { name, .. }, false) = (&assignment.pattern, is_let_assert) {
+            if let Some(flat) = self.flat_of(&assignment.value) {
+                let value = self.flat(&assignment.value, &flat, indent);
+                let rendered = self.bind(name);
+                let _ = self
+                    .flat_bindings
+                    .insert(rendered.clone(), flat.name.clone());
+                let mut out = format!(
+                    "{indent}const {rendered}: {} = {value};\n",
+                    flat.struct_name()
+                );
+                if unused_after {
+                    out.push_str(&format!("{indent}_ = {rendered};\n"));
+                }
+                let final_value = if is_last { Some(rendered) } else { None };
+                return (Vec::new(), out, final_value);
+            }
+        }
 
         // A simple binding of a scalar-typed value becomes a raw typed
         // local: no reference counting, boxed on demand at later uses.
@@ -1286,6 +1667,9 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
 
             TypedExpr::RecordAccess { record, index, .. } => {
+                if let Some(direct) = self.flat_field_access(record, *index as u64) {
+                    return direct;
+                }
                 match self.borrowable_local(record) {
                     Some(container) => {
                         format!("P.dup(({container}).record.fields[{index}])")
@@ -1297,6 +1681,9 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
 
             TypedExpr::PositionalAccess { record, index, .. } => {
+                if let Some(direct) = self.flat_field_access(record, *index as u64) {
+                    return direct;
+                }
                 match self.borrowable_local(record) {
                     Some(container) => {
                         format!("P.dup(({container}).record.fields[{index}])")
@@ -1551,6 +1938,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             // dup/drop on the container, no Value round-trip — the hot
             // shape of record-heavy numeric code (vec.x +. vec.y).
             TypedExpr::RecordAccess { record, index, .. } => {
+                if let TypedExpr::Var { name, .. } = record.as_ref() {
+                    if let Some(rendered) = self.scope.get(name) {
+                        if self.flat_bindings.contains_key(rendered) {
+                            return format!("{rendered}.f{index}");
+                        }
+                    }
+                }
                 match self.borrowable_local(record) {
                     Some(container) => format!(
                         "(({container}).record.fields[{index}]).{}",
@@ -1562,6 +1956,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 }
             }
             TypedExpr::PositionalAccess { record, index, .. } => {
+                if let TypedExpr::Var { name, .. } = record.as_ref() {
+                    if let Some(rendered) = self.scope.get(name) {
+                        if self.flat_bindings.contains_key(rendered) {
+                            return format!("{rendered}.f{index}");
+                        }
+                    }
+                }
                 match self.borrowable_local(record) {
                     Some(container) => format!(
                         "(({container}).record.fields[{index}]).{}",
@@ -1688,6 +2089,221 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             format!("{}({rendered})", zig_identifier(&format!("native${name}"))),
             return_kind,
         ))
+    }
+
+    /// The flat return representation of a same-module flat-ABI callee.
+    fn flat_call_returns(
+        &self,
+        fun: &TypedExpr,
+        arguments: &[CallArg<TypedExpr>],
+    ) -> Option<Option<EcoString>> {
+        let (module, name) = match fun {
+            TypedExpr::Var { constructor, .. } => match &constructor.variant {
+                ValueConstructorVariant::ModuleFn { name, module, .. } => (module, name),
+                _ => return None,
+            },
+            TypedExpr::ModuleSelect {
+                constructor: ModuleValueConstructor::Fn { module, name, .. },
+                ..
+            } => (module, name),
+            _ => return None,
+        };
+        if *module != self.module.module_name {
+            return None;
+        }
+        let (parameters, returns) = self.module.flat_signatures.get(name)?;
+        if parameters.len() != arguments.len() {
+            return None;
+        }
+        Some(returns.clone())
+    }
+
+    /// A call to a same-module flat-ABI function: flat positions pass
+    /// structs, boxed positions pass Values, and the result is a struct
+    /// when the callee returns one. Returns None when the callee has no
+    /// flat ABI or the call is not saturated.
+    fn flat_call(
+        &mut self,
+        fun: &TypedExpr,
+        arguments: &[CallArg<TypedExpr>],
+        indent: &str,
+    ) -> Option<String> {
+        let (module, name) = match fun {
+            TypedExpr::Var { constructor, .. } => match &constructor.variant {
+                ValueConstructorVariant::ModuleFn { name, module, .. } => {
+                    (module.clone(), name.clone())
+                }
+                _ => return None,
+            },
+            TypedExpr::ModuleSelect {
+                constructor: ModuleValueConstructor::Fn { module, name, .. },
+                ..
+            } => (module.clone(), name.clone()),
+            _ => return None,
+        };
+        if module != self.module.module_name {
+            return None;
+        }
+        let (parameters, _) = self.module.flat_signatures.get(&name)?.clone();
+        if parameters.len() != arguments.len() {
+            return None;
+        }
+        let rendered = arguments
+            .iter()
+            .zip(&parameters)
+            .map(|(argument, parameter)| match parameter {
+                Some(constructor) => {
+                    let flat = self
+                        .module
+                        .flat_types
+                        .get(constructor)
+                        .expect("flat signature names a flat type")
+                        .clone();
+                    self.flat(&argument.value, &flat, indent)
+                }
+                None => self.expression(&argument.value, indent),
+            })
+            .join(", ");
+        Some(format!(
+            "{}({rendered})",
+            zig_identifier(&format!("flat${name}"))
+        ))
+    }
+
+    /// A function with flat-typed parameters or return: the body is
+    /// emitted as `flat$name` over structs, plus a boxed wrapper under
+    /// the original name that unboxes its arguments and boxes the
+    /// result, keeping the uniform convention for every other caller.
+    fn flat_function(
+        &mut self,
+        name: &EcoString,
+        function: &TypedFunction,
+        parameter_names: &[EcoString],
+        parameters: &[Option<EcoString>],
+        returns: Option<EcoString>,
+        uses_tail_recursion: bool,
+        visibility: &str,
+    ) -> String {
+        let flat_name = zig_identifier(&format!("flat${name}"));
+        self.flat_return = returns.clone();
+
+        let mut parameter_list = Vec::new();
+        let mut dropped_params = Vec::new();
+        let mut locals = Vec::new();
+        let mut local_idents = Vec::new();
+        let mut discards = String::new();
+        for (parameter_name, parameter) in parameter_names.iter().zip(parameters) {
+            let rendered = self.bind(parameter_name);
+            let uses = summarise_uses(parameter_name, &function.body);
+            match parameter {
+                Some(constructor) => {
+                    let flat = self
+                        .module
+                        .flat_types
+                        .get(constructor)
+                        .expect("flat signature names a flat type")
+                        .clone();
+                    if uses_tail_recursion {
+                        let incoming = zig_identifier(&format!("p${parameter_name}"));
+                        parameter_list.push(format!("{incoming}: {}", flat.struct_name()));
+                        locals.push(format!("{INDENT}var {rendered} = {incoming};\n"));
+                        local_idents.push(rendered.clone());
+                    } else {
+                        parameter_list
+                            .push(format!("{rendered}: {}", flat.struct_name()));
+                    }
+                    if uses.count == 0 {
+                        discards.push_str(&format!("{INDENT}_ = {rendered};\n"));
+                    }
+                    let _ = self.flat_bindings.insert(rendered, constructor.clone());
+                }
+                None => {
+                    if uses_tail_recursion {
+                        let incoming = zig_identifier(&format!("p${parameter_name}"));
+                        parameter_list.push(format!("{incoming}: Value"));
+                        locals.push(format!("{INDENT}var {rendered} = {incoming};\n"));
+                        local_idents.push(rendered.clone());
+                    } else {
+                        parameter_list.push(format!("{rendered}: Value"));
+                    }
+                    if uses.single_straight_line_use() && !uses_tail_recursion {
+                        let _ = self.moved.insert(rendered);
+                    } else {
+                        dropped_params.push(rendered);
+                    }
+                }
+            }
+        }
+
+        let return_type = match &returns {
+            Some(constructor) => self
+                .module
+                .flat_types
+                .get(constructor)
+                .expect("flat signature names a flat type")
+                .struct_name(),
+            None => "Value".to_string(),
+        };
+
+        let flat_body = if uses_tail_recursion {
+            self.tail_target = Some((name.clone(), local_idents));
+            let inner_indent = format!("{INDENT}{INDENT}");
+            let body =
+                self.statements(&function.body, Tail::Return, &inner_indent, &dropped_params);
+            format!(
+                "fn {flat_name}({}) {return_type} {{\n{}{discards}{INDENT}while (true) {{\n{body}{INDENT}}}\n}}\n",
+                parameter_list.join(", "),
+                locals.join(""),
+            )
+        } else {
+            let body =
+                self.statements(&function.body, Tail::Return, INDENT, &dropped_params);
+            format!(
+                "fn {flat_name}({}) {return_type} {{\n{discards}{body}}}\n",
+                parameter_list.join(", "),
+            )
+        };
+
+        // The boxed wrapper: unbox flat arguments, call, box the result.
+        let wrapper_parameters = (0..parameters.len())
+            .map(|index| format!("{}: Value", zig_identifier(&format!("a${index}"))))
+            .join(", ");
+        let forwarded = parameters
+            .iter()
+            .enumerate()
+            .map(|(index, parameter)| {
+                let argument = zig_identifier(&format!("a${index}"));
+                match parameter {
+                    Some(constructor) => {
+                        let flat = self
+                            .module
+                            .flat_types
+                            .get(constructor)
+                            .expect("flat signature names a flat type");
+                        format!("{}({argument})", flat.unbox_fn())
+                    }
+                    None => argument,
+                }
+            })
+            .join(", ");
+        let call = format!("{flat_name}({forwarded})");
+        let boxed_result = match &returns {
+            Some(constructor) => {
+                let flat = self
+                    .module
+                    .flat_types
+                    .get(constructor)
+                    .expect("flat signature names a flat type");
+                format!("{}({call})", flat.box_fn())
+            }
+            None => call,
+        };
+        let wrapper = format!(
+            "{visibility}fn {}({wrapper_parameters}) Value {{\n{INDENT}return {boxed_result};\n}}\n",
+            zig_identifier(name),
+        );
+
+        format!("{flat_body}\n{wrapper}")
     }
 
     /// A call to a same-module function with the borrowed ABI. Borrowed
@@ -1888,6 +2504,24 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         // Same-module native-ABI callee: raw call, box the result.
         if let Some((call, return_kind)) = self.native_call(fun, arguments, indent) {
             return format!("{}({call})", return_kind.box_helper());
+        }
+
+        // Same-module flat-ABI callee: pass structs, box the result for
+        // this boxed context.
+        if let Some(returns) = self.flat_call_returns(fun, arguments) {
+            if let Some(call) = self.flat_call(fun, arguments, indent) {
+                return match returns {
+                    Some(constructor) => {
+                        let flat = self
+                            .module
+                            .flat_types
+                            .get(&constructor)
+                            .expect("flat signature names a flat type");
+                        format!("{}({call})", flat.box_fn())
+                    }
+                    None => call,
+                };
+            }
         }
 
         // Same-module borrowed-ABI callee: borrowed arguments pass
@@ -2169,7 +2803,19 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             .iter()
             .map(|(_, rendered)| match self.raw_bindings.get(rendered) {
                 Some(kind) => format!("{}({rendered})", kind.box_helper()),
-                None => format!("P.dup({rendered})"),
+                None => match self.flat_bindings.get(rendered) {
+                    // A flat struct capture boxes into the environment:
+                    // the closure's env is a slice of Values.
+                    Some(constructor) => {
+                        let flat = self
+                            .module
+                            .flat_types
+                            .get(constructor)
+                            .expect("flat binding names a flat type");
+                        format!("{}({rendered})", flat.box_fn())
+                    }
+                    None => format!("P.dup({rendered})"),
+                },
             })
             .join(", ");
         format!("P.makeClosure(@ptrCast(&{lambda}), &[_]Value{{ {environment} }})")
@@ -2225,7 +2871,21 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         // subjects never arm reuse (the case does not own the cell).
         let mut owned_subjects = Vec::new();
         let mut subject_borrowed = Vec::new();
+        // Subjects that are flat structs: their patterns compile to
+        // field reads with no test (the type has one constructor).
+        let mut subject_flat: Vec<Option<EcoString>> = Vec::new();
         for subject in subjects {
+            if let TypedExpr::Var { name, .. } = subject {
+                if let Some(rendered) = self.scope.get(name) {
+                    if let Some(constructor) = self.flat_bindings.get(rendered).cloned() {
+                        subject_names.push(rendered.clone());
+                        subject_borrowed.push(true);
+                        subject_flat.push(Some(constructor));
+                        continue;
+                    }
+                }
+            }
+            subject_flat.push(None);
             if let Some(local) = self.borrowable_local(subject) {
                 if !self.raw_bindings.contains_key(&local) {
                     subject_names.push(local);
@@ -2254,11 +2914,36 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let mut setup = Vec::new();
                 let mut conditions = Vec::new();
                 let mut bindings = Vec::new();
-                for ((pattern, subject), from_borrowed) in multi_pattern
+                for (((pattern, subject), from_borrowed), flat) in multi_pattern
                     .iter()
                     .zip(&subject_names)
                     .zip(&subject_borrowed)
+                    .zip(&subject_flat)
                 {
+                    if let Some(constructor) = flat {
+                        let flat_type = self
+                            .module
+                            .flat_types
+                            .get(constructor)
+                            .expect("flat subject names a flat type")
+                            .clone();
+                        let mut compiled = CompiledPattern::default();
+                        self.compile_flat_pattern(
+                            pattern,
+                            subject,
+                            &flat_type,
+                            &mut compiled,
+                        );
+                        setup.extend(compiled.setup);
+                        conditions.extend(compiled.conditions);
+                        bindings.extend(
+                            compiled
+                                .bindings
+                                .into_iter()
+                                .map(|binding| (binding, *from_borrowed)),
+                        );
+                        continue;
+                    }
                     let compiled = self.pattern(pattern, subject);
                     setup.extend(compiled.setup);
                     conditions.extend(compiled.conditions);
@@ -2309,6 +2994,33 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                             && expression_borrow_only(&name, &clause.then, &context)
                     };
                     let rendered = self.bind(&name);
+                    // Flat-pattern bindings carry no reference: register
+                    // their representation and skip all drop bookkeeping.
+                    let mut flat_bound = false;
+                    if let Some(position) = self
+                        .pending_flat_bindings
+                        .iter()
+                        .position(|(pending, _)| *pending == name)
+                    {
+                        let (_, constructor) = self.pending_flat_bindings.remove(position);
+                        let _ = self.flat_bindings.insert(rendered.clone(), constructor);
+                        flat_bound = true;
+                    }
+                    if let Some(position) = self
+                        .pending_raw_bindings
+                        .iter()
+                        .position(|(pending, _)| *pending == name)
+                    {
+                        let (_, kind) = self.pending_raw_bindings.remove(position);
+                        let _ = self.raw_bindings.insert(rendered.clone(), kind);
+                        flat_bound = true;
+                    }
+                    if flat_bound {
+                        binding_text.push_str(&format!(
+                            "{inner_indent}const {rendered} = {path};\n"
+                        ));
+                        continue;
+                    }
                     let path = if owned || borrow_binding {
                         path
                     } else {
@@ -2475,6 +3187,69 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let mut compiled = CompiledPattern::default();
         self.compile_pattern(pattern, subject, &mut compiled);
         compiled
+    }
+
+    /// Patterns against a flat struct subject. The type has exactly one
+    /// constructor, so the variant test is vacuous; each field pattern
+    /// either binds a raw scalar (registered as such) or compares one.
+    fn compile_flat_pattern(
+        &mut self,
+        pattern: &TypedPattern,
+        subject: &str,
+        flat: &FlatType,
+        compiled: &mut CompiledPattern,
+    ) {
+        match pattern {
+            Pattern::Discard { .. } => {}
+            Pattern::Variable { name, .. } => {
+                // Binds the whole struct: a flat binding, no reference.
+                compiled.bindings.push((
+                    name.clone(),
+                    subject.to_string(),
+                    true,
+                ));
+                let _ = self
+                    .pending_flat_bindings
+                    .push((name.clone(), flat.name.clone()));
+            }
+            Pattern::Constructor { arguments, .. } => {
+                for (index, argument) in arguments.iter().enumerate() {
+                    let path = format!("{subject}.f{index}");
+                    let kind = flat.fields[index];
+                    match &argument.value {
+                        Pattern::Discard { .. } => {}
+                        Pattern::Variable { name, .. } => {
+                            compiled.bindings.push((name.clone(), path, true));
+                            let _ = self
+                                .pending_raw_bindings
+                                .push((name.clone(), kind));
+                        }
+                        Pattern::Int { int_value, .. } => {
+                            compiled.conditions.push(format!("{path} == {int_value}"));
+                        }
+                        Pattern::Float { value, .. } => {
+                            compiled.conditions.push(format!("{path} == {value}"));
+                        }
+                        other => {
+                            // Anything else (nested patterns) falls back
+                            // to the boxed representation for that field.
+                            let boxed = format!("{}({path})", kind.box_helper());
+                            self.compile_pattern(other, &boxed, compiled);
+                        }
+                    }
+                }
+            }
+            Pattern::Assign { name, pattern, .. } => {
+                compiled
+                    .bindings
+                    .push((name.clone(), subject.to_string(), true));
+                let _ = self
+                    .pending_flat_bindings
+                    .push((name.clone(), flat.name.clone()));
+                self.compile_flat_pattern(pattern, subject, flat, compiled);
+            }
+            other => panic!("zig codegen: unexpected flat pattern {other:?}"),
+        }
     }
 
     fn compile_pattern(
@@ -3269,6 +4044,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 // A raw scalar binding boxes at this polymorphic use.
                 if let Some(kind) = self.raw_bindings.get(&rendered) {
                     return format!("{}({rendered})", kind.box_helper());
+                }
+                // A flat struct binding boxes into a heap record here.
+                if let Some(constructor) = self.flat_bindings.get(&rendered) {
+                    let flat = self
+                        .module
+                        .flat_types
+                        .get(constructor)
+                        .expect("flat binding names a flat type");
+                    return format!("{}({rendered})", flat.box_fn());
                 }
                 // A move-approved binding transfers its reference at this
                 // (single) use; otherwise the use takes its own reference
