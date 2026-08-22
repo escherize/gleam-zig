@@ -3329,8 +3329,16 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     );
                 }
 
-                let breaks_label = format!("break :{clause_label}");
+                // A clause is labelled only when something actually
+                // breaks to it. The needle carries the statement's
+                // terminator because label names share prefixes:
+                // `break :c1` is a substring of `break :c10`, which made
+                // a fallthrough-free clause look labelled once a
+                // function had eleven or more clauses (zig then rejects
+                // the unused label).
+                let breaks_label = format!("break :{clause_label};");
                 let labelled = clause_body.contains(&breaks_label)
+                    || binding_text.contains(&breaks_label)
                     || guard_and_body.contains(&breaks_label);
                 if labelled {
                     out.push_str(&format!("{indent}{clause_label}: {{\n"));
