@@ -1074,6 +1074,42 @@ pub fn recordHasName(value: Value, name: []const u8) bool {
 // ---------------------------------------------------------------- equality
 
 /// Borrows both values (used by FFI and internally).
+/// A structural hash matching isEqual: values that compare equal hash
+/// equal. Used by the dict's hash trie. Function values hash by code
+/// pointer, mirroring isEqual's reference equality for them.
+pub fn hashValue(value: Value) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    hashInto(&hasher, value);
+    return hasher.final();
+}
+
+fn hashInto(hasher: *std.hash.Wyhash, value: Value) void {
+    // The tag participates so 1 and 1.0 and true hash differently, as
+    // isEqual keeps them distinct.
+    hasher.update(&[_]u8{@intFromEnum(std.meta.activeTag(value))});
+    switch (value) {
+        .int => |i| hasher.update(std.mem.asBytes(&i)),
+        .float => |f| hasher.update(std.mem.asBytes(&f)),
+        .bool => |b| hasher.update(&[_]u8{@intFromBool(b)}),
+        .string => |str| hasher.update(str),
+        .nil => {},
+        .list => {
+            var cell = value.list;
+            while (cell) |c| : (cell = c.tail) hashInto(hasher, c.head);
+        },
+        .tuple => |elements| for (elements) |element| hashInto(hasher, element),
+        .record => |record| {
+            hasher.update(record.name);
+            for (record.fields) |field| hashInto(hasher, field);
+        },
+        .closure => |closure| {
+            const address = @intFromPtr(closure.function);
+            hasher.update(std.mem.asBytes(&address));
+        },
+        .bit_array => |bits| hasher.update(bits.bytes()),
+    }
+}
+
 pub fn isEqual(a: Value, b: Value) bool {
     if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
     return switch (a) {
