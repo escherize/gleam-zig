@@ -641,7 +641,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       <li><strong class="num">6,180</strong> compiler-suite tests stay green on the fork</li>
     </ul>
     <h3>The tri-target demo</h3>
-    <p>A ~200-line ray tracer runs unchanged on all three targets and produces <strong>byte-identical images</strong> (md5 <code class="num">7a452dda…</code>): native <span class="num">0.08 s / 6 MB</span> in a <span class="num">398 KB</span> binary, node <span class="num">0.12 s / 65 MB</span>, BEAM <span class="num">1.48 s / 104 MB</span>. Three days of optimization took the native time from 0.66 s to 1.5&times; ahead of V8 — at a tenth of the memory.</p>
+    <p>A ~200-line ray tracer runs unchanged on all three targets and produces <strong>byte-identical images</strong> (md5 <code class="num">7a452dda…</code>): native <span class="num">0.08 s / 6 MB</span> in a <span class="num">398 KB</span> binary, node <span class="num">0.12 s / 65 MB</span>, BEAM <span class="num">1.48 s / 104 MB</span>. Three days of optimization took the native time from 0.66 s to 1.5&times; ahead of V8 — at a tenth of the memory. The story is written up in <a href="raytracer-post.html">"A ray tracer in Gleam, but 18&times; faster"</a>.</p>
     <div class="note"><strong>The soft spot, named:</strong> the 77-function hand-written externals core is the only layer that can be silently wrong — everything else fails loud at compile time. Differential fuzzing aimed at exactly that layer has <strong>not run yet</strong> <span class="planned">planned</span>; the corpus and the leak gate are the current evidence.</div>
   </section>
 
