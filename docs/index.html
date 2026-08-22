@@ -460,6 +460,16 @@ tar xf zig-aarch64-macos-0.16.0.tar.xz &amp;&amp; <span class="pr">cd</span> ..
 <span class="pr">cd</span> gleam &amp;&amp; cargo build -p gleam &amp;&amp; <span class="pr">cd</span> ..</pre>
       <button class="copy" aria-label="Copy setup commands" data-copy>1</button>
     </div>
+    <p><strong>Or skip the project entirely.</strong> A single <code>.gleam</code> file exports straight to a binary — the compiler scaffolds a throwaway project around it (point <code>GLEAM_ZIG_STDLIB</code> at the stdlib fork, or run anywhere below a <code>gleam-stdlib/</code> checkout):</p>
+    <div class="codewrap">
+<pre class="block"><span class="cmt"># write one file, get one native binary</span>
+../gleam/target/debug/gleam export zig-executable fizzbuzz.gleam
+./fizzbuzz
+
+<span class="cmt"># the ray tracer's single source file works the same way — byte-identical image</span>
+../gleam/target/debug/gleam export zig-executable raytracer.gleam --out rt &amp;&amp; ./rt &gt; out.ppm</pre>
+      <button class="copy" aria-label="Copy bare-file commands" data-copy></button>
+    </div>
     <p>Point a Gleam project at the target and run it. The stdlib fork is a path dependency for now:</p>
     <div class="codewrap">
 <pre class="block"><span class="cm"># gleam.toml</span>
