@@ -393,6 +393,15 @@
   .hstep.now .hv { color: var(--amber); }
   .harrow { display: flex; align-items: center; padding: 0 4px; color: var(--faint); }
   @media (max-width: 640px) { .harrow { display: none; } .history { gap: 8px; } }
+
+  .triptych { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--seam-soft); border: 1px solid var(--seam); border-radius: 12px; overflow: hidden; margin-top: 26px; }
+  @media (max-width: 640px) { .triptych { grid-template-columns: 1fr; } }
+  .triptych figure { margin: 0; background: var(--panel); }
+  .triptych img { display: block; width: 100%; height: auto; image-rendering: auto; }
+  .triptych figcaption { font-family: var(--font-mono); font-size: 11px; color: var(--dim); padding: 8px 12px; border-top: 1px solid var(--seam-soft); display: flex; justify-content: space-between; gap: 8px; }
+  .triptych figcaption b { font-weight: 600; }
+  .triptych figure.z figcaption b { color: var(--amber); }
+  .trip-note { font-family: var(--font-mono); font-size: 11.5px; color: var(--faint); margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -426,6 +435,22 @@
   <p class="hero-sub" style="margin-top:16px">Same 200 lines of pure standard-library Gleam. Same image, byte for byte. The only thing that changed is the machine underneath.</p>
 </div>
 
+<div class="triptych" role="group" aria-label="The same render from all three targets">
+  <figure>
+    <img src="assets/raytracer-erlang.png" width="320" height="240" alt="Ray-traced scene of reflective spheres on a checkered floor, rendered by the Erlang target">
+    <figcaption><span><b>erlang</b> / OTP 27</span><span class="num">1.48 s</span></figcaption>
+  </figure>
+  <figure>
+    <img src="assets/raytracer-node.png" width="320" height="240" alt="The identical ray-traced scene, rendered by the JavaScript target on node">
+    <figcaption><span><b>node</b> 22</span><span class="num">0.12 s</span></figcaption>
+  </figure>
+  <figure class="z">
+    <img src="assets/raytracer-zig.png" width="320" height="240" alt="The identical ray-traced scene, rendered by the gleam-zig native binary">
+    <figcaption><span><b>zig</b> static binary</span><span class="num">0.08 s</span></figcaption>
+  </figure>
+</div>
+<p class="trip-note">Three separate renders, one from each target. Spot the difference — you can't: all three PPMs hash to <span class="num">7a452dda1311ec87af42a1e22ba1367c</span>.</p>
+
 <section style="padding-top:34px">
   <p class="lede">Gleam programs live on the BEAM. This one — spheres, a floor, hard shadows, reflections, PPM to stdout — renders there in <span class="num">1.48 s</span>. Compile the identical source with the <a href="index.html">gleam-zig</a> fork instead and you get a <span class="num">399 KB</span> static binary that renders the identical image in <span class="num">0.08 s</span>:</p>
 
@@ -446,6 +471,8 @@ gleam export zig-executable raytracer.gleam --out rt
 gleam export zig-source raytracer.gleam --out rt.zig</pre>
     <button class="copy" aria-label="Copy the commands" data-copy></button>
   </div>
+
+  <p>The code, both sides of the compile: <a href="https://github.com/escherize/gleam-zig-workspace/blob/main/examples/demo/raytracer/src/raytracer.gleam">raytracer.gleam</a> — the 200-line source — and <a href="https://github.com/escherize/gleam-zig-workspace/blob/main/examples/demo/raytracer/raytracer-single.zig">raytracer-single.zig</a>, the entire emitted program (modules, runtime, entrypoint) as the one file <code>zig-source</code> produces. Read what the compiler actually wrote.</p>
 
   <h3>Where the 18&times; came from</h3>
   <p>Not from one trick. The compiler emits readable Zig with compile-time reference counting instead of a GC, and the number fell over three days of measured steps, each one gated on a 124-program corpus that byte-diffs against the official compiler under a leak checker:</p>
