@@ -30,12 +30,17 @@ pub const PRELUDE: &str = include_str!("../templates/prelude.zig");
 
 const INDENT: &str = "    ";
 
-/// A Gleam type with an unboxed zig representation.
+/// A Gleam type with an unboxed zig representation. `List` is not a
+/// scalar (its spine is reference-counted) but travels raw in the
+/// native ABI as a spine pointer; it is admitted only through
+/// [`native_kind`], never through [`scalar_kind`], whose callers assume
+/// values with no reference to manage.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ScalarKind {
     Int,
     Float,
     Bool,
+    List,
 }
 
 impl ScalarKind {
@@ -45,6 +50,7 @@ impl ScalarKind {
             ScalarKind::Int => "int",
             ScalarKind::Float => "float",
             ScalarKind::Bool => "bool",
+            ScalarKind::List => "list",
         }
     }
 
@@ -53,15 +59,28 @@ impl ScalarKind {
             ScalarKind::Int => "i64",
             ScalarKind::Float => "f64",
             ScalarKind::Bool => "bool",
+            ScalarKind::List => "?*const P.Cons",
         }
     }
 
-    /// The prelude helper wrapping a raw scalar into a `Value`.
+    /// The prelude helper wrapping a raw scalar into a `Value`. The
+    /// result borrows the raw representation: no reference is taken.
     fn box_helper(self) -> &'static str {
         match self {
             ScalarKind::Int => "P.intValue",
             ScalarKind::Float => "P.floatValue",
             ScalarKind::Bool => "P.boolValue",
+            ScalarKind::List => "P.listValue",
+        }
+    }
+
+    /// The prelude helper wrapping a raw scalar into an owned `Value`:
+    /// the result holds a reference of its own. For true scalars this
+    /// is the same as [`Self::box_helper`] (there is nothing to own).
+    fn own_helper(self) -> &'static str {
+        match self {
+            ScalarKind::List => "P.dupList",
+            other => other.box_helper(),
         }
     }
 }
@@ -76,6 +95,19 @@ fn scalar_kind(type_: &crate::type_::Type) -> Option<ScalarKind> {
     } else {
         None
     }
+}
+
+/// Types eligible for the native ABI: scalars plus concrete lists,
+/// which travel as raw spine pointers. Only consulted when computing
+/// whole-function native signatures.
+fn native_kind(type_: &crate::type_::Type) -> Option<ScalarKind> {
+    scalar_kind(type_).or_else(|| {
+        if type_.is_list() {
+            Some(ScalarKind::List)
+        } else {
+            None
+        }
+    })
 }
 
 
@@ -236,10 +268,11 @@ pub fn module(
     for import in &module.definitions.imports {
         let _ = imported_packages.insert(import.module.clone(), import.package.clone());
     }
-
-    // Functions whose signature is entirely concrete scalars get a raw
-    // native ABI; computed up front so call sites anywhere in the module
-    // (including bodies generated before the callee) can use it.
+    // Functions whose signature is native-kind get a raw ABI. Scalars
+    // qualify everywhere; concrete lists qualify as PARAMETERS only —
+    // they travel as borrowed spine pointers whose reference stays with
+    // the caller's Value, so a returned list would hand every wrapper
+    // consumer a pointer no one owns.
     let mut native_signatures = HashMap::new();
     for function in &module.definitions.functions {
         let Some((_, name)) = &function.name else {
@@ -257,11 +290,18 @@ pub fn module(
         let Some(parameter_kinds) = function
             .arguments
             .iter()
-            .map(|argument| scalar_kind(&argument.type_))
+            .map(|argument| native_kind(&argument.type_))
             .collect::<Option<Vec<_>>>()
         else {
             continue;
         };
+        if parameter_kinds.contains(&ScalarKind::List)
+            && body_has_tail_self_call(&function.body, name)
+        {
+            // The tail-call loop reassigns its parameters with owned
+            // values; mixing conventions there is not worth it.
+            continue;
+        }
         let _ = native_signatures.insert(name.clone(), (parameter_kinds, return_kind));
     }
 
@@ -1091,10 +1131,22 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 )
             })
             .join(", ");
+        // A raw list parameter borrows the wrapper's owned Value; that
+        // reference is released here after the call. Scalars own
+        // nothing, so they need no release.
+        let wrapper_drops = parameter_kinds
+            .iter()
+            .enumerate()
+            .filter(|(_, kind)| **kind == ScalarKind::List)
+            .map(|(index, _)| {
+                format!("{INDENT}P.drop({});\n", zig_identifier(&format!("a${index}")))
+            })
+            .join("");
+        let result = self.fresh_name("r");
         let wrapper = format!(
-            "{visibility}fn {}({wrapper_parameters}) Value {{\n{INDENT}return {}({native_name}({forwarded}));\n}}\n",
+            "{visibility}fn {}({wrapper_parameters}) Value {{\n{INDENT}const {result} = {}({native_name}({forwarded}));\n{wrapper_drops}{INDENT}return {result};\n}}\n",
             zig_identifier(name),
-            return_kind.box_helper(),
+            return_kind.own_helper(),
         );
 
         format!("{native}\n{wrapper}")
@@ -1284,7 +1336,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     if let Some(final_value) = final_value {
                         // A raw scalar binding boxes on the way out.
                         let final_value = match self.raw_bindings.get(&final_value) {
-                            Some(kind) => format!("{}({final_value})", kind.box_helper()),
+                            Some(kind) => format!("{}({final_value})", kind.own_helper()),
                             None => match self.flat_bindings.get(&final_value) {
                                 Some(constructor) if self.flat_return.is_none() => {
                                     let flat = self
@@ -1422,6 +1474,51 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     out.push_str(&format!("{indent}return {temporary};\n"));
                     return out;
                 }
+            }
+        }
+        // A native-ABI function returns the raw representation directly
+        // when the expression renders without boxing into a `Value`:
+        // a same-module native call, or a raw local (its owner outlives
+        // the exit — the wrapper, or the borrowed case subject).
+        // Anything else may alias a spine owned by a Value this exit
+        // drops, so it takes the boxed round trip.
+        if tail == Tail::Return && self.native_return.is_some() {
+            // Scalars carry no references, so any scalar-typed
+            // expression renders raw directly. A list is only safe as a
+            // same-module native call or a raw local: other forms alias
+            // a spine owned by a Value this exit drops.
+            let direct = if scalar_kind(&expression.type_()).is_some() {
+                Some(self.scalar(expression, indent))
+            } else {
+                match expression {
+                    TypedExpr::Call { fun, arguments, .. } => {
+                        self.native_call(fun, arguments, indent).map(|(call, _)| call)
+                    }
+                    TypedExpr::Var { constructor, name, .. }
+                        if matches!(
+                            &constructor.variant,
+                            ValueConstructorVariant::LocalVariable { .. }
+                        ) =>
+                    {
+                        self.scope
+                            .get(name)
+                            .and_then(|rendered| self.raw_bindings.get(rendered))
+                            .map(|_| self.scope.get(name).cloned().unwrap_or_default())
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(value) = direct {
+                if drops.is_empty() {
+                    return format!("{indent}return {value};\n");
+                }
+                let temporary = self.fresh_name("r");
+                let mut out = format!("{indent}const {temporary} = {value};\n");
+                for binding in drops {
+                    out.push_str(&format!("{indent}P.drop({binding});\n"));
+                }
+                out.push_str(&format!("{indent}return {temporary};\n"));
+                return out;
             }
         }
         let value = self.expression(expression, indent);
@@ -1617,7 +1714,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 // in the enclosing scope.
                 let subject = self.fresh_name("subject");
                 let mut out = format!("{indent}const {subject} = {value};\n");
-                let compiled = self.pattern(pattern, &subject);
+                let compiled = self.pattern(pattern, &subject, false);
                 let line = self.line_number(&assignment.location);
                 for setup in &compiled.setup {
                     out.push_str(&format!("{indent}{setup}\n"));
@@ -2030,8 +2127,8 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     /// i64/f64/bool. Total: subtrees without a raw form render boxed and
     /// read the union field, which is free for scalars (no references).
     fn scalar(&mut self, expression: &TypedExpr, indent: &str) -> String {
-        let kind = scalar_kind(&expression.type_())
-            .expect("zig codegen: scalar render of a non-scalar expression");
+        let kind = native_kind(&expression.type_())
+            .expect("zig codegen: raw render of a non-native-kind expression");
         match expression {
             TypedExpr::Int { int_value, .. } => format!("{int_value}"),
 
@@ -2220,9 +2317,17 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         format!("({left} {token} {right})")
     }
 
-    /// A call to a same-module function with the raw scalar ABI: render it
-    /// natively (raw arguments, raw result) and return the call with its
-    /// result kind.
+    /// A call to a same-module function with the raw native ABI: render
+    /// it natively (raw arguments, raw result) and return the call with
+    /// its result kind.
+    ///
+    /// Raw list arguments travel as borrows — the callee takes no
+    /// reference and drops none. That is only sound when the argument's
+    /// owner outlives the call: a raw local (the wrapper or a borrowed
+    /// case subject), another native call, or a scalar. Anything else
+    /// (a Value binding that was move-approved into this position, say)
+    /// must go through the boxed wrapper, which takes and releases its
+    /// own references, so this returns None and the caller falls back.
     fn native_call(
         &mut self,
         fun: &TypedExpr,
@@ -2246,6 +2351,32 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             return None;
         }
         let (_, return_kind) = self.module.native_signatures.get(&name)?.clone();
+        for argument in arguments {
+            if scalar_kind(&argument.value.type_()).is_some() {
+                continue;
+            }
+            match &argument.value {
+                TypedExpr::Var { constructor, name, .. }
+                    if matches!(
+                        &constructor.variant,
+                        ValueConstructorVariant::LocalVariable { .. }
+                    ) =>
+                {
+                    let raw_local = self
+                        .scope
+                        .get(name)
+                        .and_then(|rendered| self.raw_bindings.get(rendered))
+                        .is_some();
+                    if !raw_local {
+                        return None;
+                    }
+                }
+                TypedExpr::Call { fun, arguments, .. } => {
+                    let _ = self.native_call(fun, arguments, indent)?;
+                }
+                _ => return None,
+            }
+        }
         let rendered = arguments
             .iter()
             .map(|argument| self.scalar(&argument.value, indent))
@@ -2668,7 +2799,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
     ) -> String {
         // Same-module native-ABI callee: raw call, box the result.
         if let Some((call, return_kind)) = self.native_call(fun, arguments, indent) {
-            return format!("{}({call})", return_kind.box_helper());
+            return format!("{}({call})", return_kind.own_helper());
         }
 
         // Same-module flat-ABI callee: pass structs, box the result for
@@ -2967,7 +3098,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         let environment = captures
             .iter()
             .map(|(_, rendered)| match self.raw_bindings.get(rendered) {
-                Some(kind) => format!("{}({rendered})", kind.box_helper()),
+                Some(kind) => format!("{}({rendered})", kind.own_helper()),
                 None => match self.flat_bindings.get(rendered) {
                     // A flat struct capture boxes into the environment:
                     // the closure's env is a slice of Values.
@@ -3039,6 +3170,9 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         // Subjects that are flat structs: their patterns compile to
         // field reads with no test (the type has one constructor).
         let mut subject_flat: Vec<Option<EcoString>> = Vec::new();
+        // Native-list subjects stay in spine representation; their list
+        // patterns destructure the pointer directly.
+        let mut subject_raw_list = Vec::new();
         for subject in subjects {
             if let TypedExpr::Var { name, .. } = subject {
                 if let Some(rendered) = self.scope.get(name) {
@@ -3046,6 +3180,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         subject_names.push(rendered.clone());
                         subject_borrowed.push(true);
                         subject_flat.push(Some(constructor));
+                        subject_raw_list.push(false);
                         continue;
                     }
                 }
@@ -3055,6 +3190,13 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 if !self.raw_bindings.contains_key(&local) {
                     subject_names.push(local);
                     subject_borrowed.push(true);
+                    subject_raw_list.push(false);
+                    continue;
+                }
+                if self.raw_bindings.get(&local) == Some(&ScalarKind::List) {
+                    subject_names.push(local);
+                    subject_borrowed.push(true);
+                    subject_raw_list.push(true);
                     continue;
                 }
             }
@@ -3064,6 +3206,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             owned_subjects.push(rendered.clone());
             subject_names.push(rendered);
             subject_borrowed.push(false);
+            subject_raw_list.push(false);
         }
         let all_subjects_owned = owned_subjects.len() == subject_names.len();
 
@@ -3079,11 +3222,12 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 let mut setup = Vec::new();
                 let mut conditions = Vec::new();
                 let mut bindings = Vec::new();
-                for (((pattern, subject), from_borrowed), flat) in multi_pattern
+                for ((((pattern, subject), from_borrowed), flat), raw_list) in multi_pattern
                     .iter()
                     .zip(&subject_names)
                     .zip(&subject_borrowed)
                     .zip(&subject_flat)
+                    .zip(&subject_raw_list)
                 {
                     if let Some(constructor) = flat {
                         let flat_type = self
@@ -3109,7 +3253,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                         );
                         continue;
                     }
-                    let compiled = self.pattern(pattern, subject);
+                    let compiled = self.pattern(pattern, subject, *raw_list);
                     setup.extend(compiled.setup);
                     conditions.extend(compiled.conditions);
                     bindings.extend(
@@ -3356,9 +3500,14 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         out
     }
 
-    fn pattern(&mut self, pattern: &TypedPattern, subject: &str) -> CompiledPattern {
+    fn pattern(
+        &mut self,
+        pattern: &TypedPattern,
+        subject: &str,
+        raw_cell: bool,
+    ) -> CompiledPattern {
         let mut compiled = CompiledPattern::default();
-        self.compile_pattern(pattern, subject, &mut compiled);
+        self.compile_pattern(pattern, subject, raw_cell, &mut compiled);
         compiled
     }
 
@@ -3405,7 +3554,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                                 // Anything else falls back to the boxed
                                 // representation for that field.
                                 let boxed = format!("{}({path})", kind.box_helper());
-                                self.compile_pattern(other, &boxed, compiled);
+                                self.compile_pattern(other, &boxed, false, compiled);
                             }
                         },
                         FlatField::Nested(nested_name) => {
@@ -3447,10 +3596,15 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
         }
     }
 
+    /// `raw_cell`: the subject is already a `?*const Cons` spine
+    /// pointer (a native-ABI list parameter), so list patterns test and
+    /// destructure the pointer directly instead of reading a `Value`'s
+    /// `.list` field.
     fn compile_pattern(
         &mut self,
         pattern: &TypedPattern,
         subject: &str,
+        raw_cell: bool,
         compiled: &mut CompiledPattern,
     ) {
         match pattern {
@@ -3466,7 +3620,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                 compiled
                     .bindings
                     .push((name.clone(), subject.to_string(), false));
-                self.compile_pattern(pattern, subject, compiled);
+                self.compile_pattern(pattern, subject, false, compiled);
             }
 
             Pattern::Int { int_value, .. } => {
@@ -3522,23 +3676,61 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             Pattern::Tuple { elements, .. } => {
                 for (index, element) in elements.iter().enumerate() {
                     let path = format!("({subject}).tuple[{index}]");
-                    self.compile_pattern(element, &path, compiled);
+                    self.compile_pattern(element, &path, false, compiled);
                 }
             }
 
             Pattern::List { elements, tail, .. } => {
-                let mut cell = format!("({subject}).list");
+                let mut cell = if raw_cell {
+                    subject.to_string()
+                } else {
+                    format!("({subject}).list")
+                };
                 for element in elements {
                     compiled.conditions.push(format!("{cell} != null"));
                     let head = format!("{cell}.?.head");
-                    self.compile_pattern(element, &head, compiled);
+                    // A scalar head binds straight into its raw
+                    // representation: reading the field copies it, so
+                    // no reference is taken or dropped.
+                    if let Pattern::Variable { name, .. } = element {
+                        if let Some(kind) = scalar_kind(&element.type_()) {
+                            compiled.bindings.push((
+                                name.clone(),
+                                format!("{head}.{}", kind.field()),
+                                true,
+                            ));
+                            self.pending_raw_bindings.push((name.clone(), kind));
+                            cell = format!("{cell}.?.tail");
+                            continue;
+                        }
+                    }
+                    self.compile_pattern(element, &head, false, compiled);
                     cell = format!("{cell}.?.tail");
                 }
                 match tail {
                     None => compiled.conditions.push(format!("{cell} == null")),
                     Some(tail_pattern) => {
-                        let rest = format!("P.listValue({cell})");
-                        self.compile_pattern(&tail_pattern.pattern, &rest, compiled);
+                        if raw_cell {
+                            // The rest of the spine stays raw: bind it
+                            // as a native-list local, no wrap, no RC.
+                            match &tail_pattern.pattern {
+                                Pattern::Variable { name, .. } => {
+                                    compiled.bindings.push((name.clone(), cell, true));
+                                    self.pending_raw_bindings.push((
+                                        name.clone(),
+                                        ScalarKind::List,
+                                    ));
+                                }
+                                Pattern::Discard { .. } => {}
+                                other => {
+                                    let boxed = format!("P.listValue({cell})");
+                                    self.compile_pattern(other, &boxed, false, compiled);
+                                }
+                            }
+                        } else {
+                            let rest = format!("P.listValue({cell})");
+                            self.compile_pattern(&tail_pattern.pattern, &rest, false, compiled);
+                        }
                     }
                 }
             }
@@ -3565,7 +3757,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     .push(format!("P.recordHasName({subject}, \"{name}\")"));
                 for (index, argument) in arguments.iter().enumerate() {
                     let path = format!("({subject}).record.fields[{index}]");
-                    self.compile_pattern(&argument.value, &path, compiled);
+                    self.compile_pattern(&argument.value, &path, false, compiled);
                 }
             }
 
@@ -4109,7 +4301,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     .unwrap_or_else(|| panic!("zig codegen: guard variable {name} not in scope"));
                 // A raw scalar binding boxes for the consuming helpers.
                 if let Some(kind) = self.raw_bindings.get(&rendered) {
-                    return format!("{}({rendered})", kind.box_helper());
+                    return format!("{}({rendered})", kind.own_helper());
                 }
                 // Guard operands feed consuming helpers (eq, tupleField...),
                 // so each use takes its own reference like any other use.
@@ -4238,7 +4430,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
                     .unwrap_or_else(|| panic!("zig codegen: variable {name} not in scope"));
                 // A raw scalar binding boxes at this polymorphic use.
                 if let Some(kind) = self.raw_bindings.get(&rendered) {
-                    return format!("{}({rendered})", kind.box_helper());
+                    return format!("{}({rendered})", kind.own_helper());
                 }
                 // A flat struct binding boxes into a heap record here.
                 if let Some(constructor) = self.flat_bindings.get(&rendered) {

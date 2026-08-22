@@ -406,6 +406,16 @@ pub fn listValue(cell: ?*const Cons) Value {
     return Value{ .list = cell };
 }
 
+/// Takes an owning reference: wraps a spine pointer and increments its
+/// count. The native ABI's raw list parameters travel as borrows; this
+/// boxes them where the result must own (captures, polymorphic uses).
+pub fn dupList(cell: ?*const Cons) Value {
+    if (cell) |c| {
+        @constCast(c).rc += 1;
+    }
+    return Value{ .list = cell };
+}
+
 /// Consumes head and tail.
 pub fn cons(head: Value, tail: Value) Value {
     const cell = poolPopCons() orelse
