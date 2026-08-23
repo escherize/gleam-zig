@@ -518,12 +518,35 @@ pub fn zig_source(paths: &ProjectPaths, output: Option<Utf8PathBuf>) -> Result<(
     Ok(())
 }
 
-/// Build a native release-mode executable via the zig target.
+/// Build a native executable via the zig target.
 ///
+/// `optimize` maps onto zig's modes: `debug` compiles roughly twice as
+/// fast and keeps the leak gate on; `fast` (the default) is the
+/// published configuration.
+#[derive(clap::ValueEnum, Clone, Debug, PartialEq, Eq)]
+pub enum ZigOptimize {
+    Debug,
+    Safe,
+    Fast,
+    Small,
+}
+
+impl ZigOptimize {
+    fn zig_flag(&self) -> &'static str {
+        match self {
+            ZigOptimize::Debug => "-ODebug",
+            ZigOptimize::Safe => "-OReleaseSafe",
+            ZigOptimize::Fast => "-OReleaseFast",
+            ZigOptimize::Small => "-OReleaseSmall",
+        }
+    }
+}
+
 pub fn zig_executable(
     paths: &ProjectPaths,
     output: Option<Utf8PathBuf>,
     cross_target: Option<String>,
+    optimize: ZigOptimize,
 ) -> Result<()> {
     let target = Target::Zig;
     let mode = Mode::Prod;
@@ -567,7 +590,7 @@ pub fn main(init: std.process.Init.Minimal) void {{
     let _ = command
         .arg("build-exe")
         .arg(entrypoint_path.as_str())
-        .arg("-OReleaseFast")
+        .arg(optimize.zig_flag())
         .arg(format!("-femit-bin={output}"));
     if let Some(cross_target) = &cross_target {
         // Hermetic cross-compilation, e.g. x86_64-linux or aarch64-windows.

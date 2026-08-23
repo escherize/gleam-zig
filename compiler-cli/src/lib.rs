@@ -667,12 +667,12 @@ impl Command {
                 };
                 export::zig_source(&paths, output)
             }
-            Self::Export(ExportTarget::ZigExecutable { file, output, cross_target }) => {
+            Self::Export(ExportTarget::ZigExecutable { file, output, cross_target, optimize }) => {
                 let paths = match file {
                     Some(file) => export::bare_file_project(&file)?,
                     None => find_project_paths(directory)?,
                 };
-                export::zig_executable(&paths, output, cross_target)
+                export::zig_executable(&paths, output, cross_target, optimize)
             }
         }
     }
@@ -727,7 +727,7 @@ pub enum ExportTarget {
         #[arg(long = "out")]
         output: Option<Utf8PathBuf>,
     },
-    /// A native release-mode executable built via the zig target
+    /// A native executable built via the zig target
     ZigExecutable {
         /// A single .gleam file to export instead of the current project
         file: Option<Utf8PathBuf>,
@@ -738,6 +738,10 @@ pub enum ExportTarget {
         /// aarch64-windows (any triple zig accepts)
         #[arg(long = "target-triple")]
         cross_target: Option<String>,
+        /// Zig optimize mode: debug compiles about twice as fast (and
+        /// keeps the exit-time leak gate on); fast is the default
+        #[arg(long = "optimize", value_enum, default_value = "fast")]
+        optimize: export::ZigOptimize,
     },
 }
 
