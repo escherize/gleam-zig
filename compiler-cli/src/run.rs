@@ -270,6 +270,7 @@ const P = @import("prelude.zig");
 const module = @import("{package}/{module}.zig");
 pub fn main(init: std.process.Init.Minimal) void {{
     P.process_args = init.args;
+    P.process_environ = init.environ;
     P.drop(module.@"main"());
     P.leakCheckExit();
 }}
@@ -284,7 +285,12 @@ pub fn main(init: std.process.Init.Minimal) void {{
     // probe, or a verified download, in that order.
     let program = crate::zig_toolchain::ensure_zig()?.into_string();
 
-    let mut args = vec!["run".to_string(), path.to_string()];
+    // Dev runs default to Debug. GLEAM_ZIG_RUN_MODE (Debug|ReleaseSafe|
+    // ReleaseFast|ReleaseSmall) opts into a faster build for programs
+    // that tolerate it; see .notes/07-status.md for why this is not
+    // yet the default.
+    let run_mode = std::env::var("GLEAM_ZIG_RUN_MODE").unwrap_or_else(|_| "Debug".to_string());
+    let mut args = vec!["run".to_string(), path.to_string(), format!("-O{run_mode}")];
     if !arguments.is_empty() {
         // Everything after -- goes to the program, not the zig compiler.
         args.push("--".to_string());
