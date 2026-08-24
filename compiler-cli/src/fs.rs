@@ -356,6 +356,19 @@ pub fn write(path: &Utf8Path, text: &str) -> Result<(), Error> {
     write_bytes(path, text.as_bytes())
 }
 
+/// Never touch generated files whose content is unchanged: keeps
+/// mtimes stable so downstream caches (zig's included) treat the tree
+/// as clean.
+pub fn write_if_changed(path: &Utf8Path, text: &str) -> Result<(), Error> {
+    if let Ok(existing) = std::fs::read(path) {
+        if existing == text.as_bytes() {
+            tracing::debug!(path=?path, "skipping_unchanged_file");
+            return Ok(());
+        }
+    }
+    write(path, text)
+}
+
 #[cfg(target_family = "unix")]
 pub fn make_executable(path: impl AsRef<Utf8Path>) -> Result<(), Error> {
     use std::os::unix::fs::PermissionsExt;

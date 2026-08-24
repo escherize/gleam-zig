@@ -583,7 +583,7 @@ pub fn main(init: std.process.Init.Minimal) void {{
     );
     let build_root = paths.build_directory_for_target(mode, target);
     let entrypoint_path = build_root.join(format!("entrypoint@{package_name}.zig"));
-    fs::write(&entrypoint_path, &entrypoint)?;
+    fs::write_if_changed(&entrypoint_path, &entrypoint)?;
 
     let output = output.unwrap_or_else(|| Utf8PathBuf::from(package_name.as_str()));
     let zig = crate::zig_toolchain::ensure_zig()?;

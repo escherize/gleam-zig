@@ -279,7 +279,7 @@ pub fn main(init: std.process.Init.Minimal) void {{
     let path = paths
         .build_directory_for_target(Mode::Dev, Target::Zig)
         .join(format!("entrypoint@{}.zig", module.replace('/', "@")));
-    crate::fs::write(&path, &entrypoint)?;
+    crate::fs::write_if_changed(&path, &entrypoint)?;
 
     // The zig toolchain resolves from GLEAM_ZIG, the cache, a pinned PATH
     // probe, or a verified download, in that order.
