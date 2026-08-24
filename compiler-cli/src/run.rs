@@ -284,7 +284,7 @@ pub fn main(init: std.process.Init.Minimal) void {{
     // probe, or a verified download, in that order.
     let program = crate::zig_toolchain::ensure_zig()?.into_string();
 
-    let mut args = vec!["run".to_string(), path.to_string()];
+    let mut args = vec!["run".to_string(), path.to_string(), "-OReleaseSafe".to_string()];
     if !arguments.is_empty() {
         // Everything after -- goes to the program, not the zig compiler.
         args.push("--".to_string());
