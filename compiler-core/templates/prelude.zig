@@ -23,11 +23,24 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Debug builds (the `gleam run` default via `zig run`) use a
-/// leak-checking allocator and verify on exit that no reference-counted
-/// allocation outlives main. Release builds use the fast allocator and
-/// skip the check.
-const leak_checking = builtin.mode == .Debug;
+/// Leak checking is on when the runtime gate is set (or in Debug
+/// builds, where it costs nothing extra to keep). The gate lets
+/// ReleaseSafe/ReleaseFast runs opt into the same check via
+/// GLEAM_ZIG_LEAK_GATE=1. Platforms without a POSIX-style environment
+/// (e.g. Windows) cannot see the variable; there the gate simply
+/// stays off unless the build is Debug.
+fn leak_checking() bool {
+    if (builtin.mode == .Debug) return true;
+    switch (builtin.os.tag) {
+        .windows, .wasi, .emscripten => return false,
+        else => {},
+    }
+    for (process_environ.block.view().slice) |entry| {
+        const kv = std.mem.span(entry);
+        if (std.mem.startsWith(u8, kv, "GLEAM_ZIG_LEAK_GATE=")) return true;
+    }
+    return false;
+}
 
 pub var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
@@ -35,8 +48,12 @@ pub var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 /// argv FFI.
 pub var process_args: std.process.Args = undefined;
 
+/// Stashed by the generated entrypoint alongside `process_args` so
+/// runtime gates (e.g. GLEAM_ZIG_LEAK_GATE) can read the environment.
+pub var process_environ: std.process.Environ = undefined;
+
 fn rc_allocator() std.mem.Allocator {
-    return if (leak_checking) debug_allocator.allocator() else std.heap.smp_allocator;
+    return if (leak_checking()) debug_allocator.allocator() else std.heap.smp_allocator;
 }
 
 /// Scratch allocator for FFI temporaries that are not reference counted.
@@ -123,9 +140,23 @@ pub const Closure = struct {
 // Release-mode object pools. The dominant cost in hot numeric code is
 // allocator round-trips for tiny objects (a record + its field slice per
 // vector operation). Freed records, cons cells and small slices park in
-// threadlocal free lists for immediate reuse. Compiled out in Debug so
-// the leak-checking gate keeps exact alloc/free pairing.
-const pooling = !leak_checking;
+// threadlocal free lists for immediate reuse. Compiled out when leak
+// checking is on, keeping exact alloc/free pairing there.
+/// Object pooling is disabled by default: a latent aliasing bug in the
+/// record free-list corrupts live values under release-mode layouts
+/// (see .notes/07-status.md). Set GLEAM_ZIG_POOL=1 to opt in.
+fn pooling() bool {
+    if (leak_checking()) return false;
+    switch (builtin.os.tag) {
+        .windows, .wasi, .emscripten => return false,
+        else => {},
+    }
+    for (process_environ.block.view().slice) |entry| {
+        const kv = std.mem.span(entry);
+        if (std.mem.startsWith(u8, kv, "GLEAM_ZIG_POOL=")) return true;
+    }
+    return false;
+}
 const max_pooled_slice = 8;
 
 threadlocal var record_pool: ?*Record = null;
@@ -138,7 +169,7 @@ threadlocal var string_pools: [max_pooled_string_words + 1]?[*]u64 =
     @splat(null);
 
 fn poolPopString(words: usize) ?[]u64 {
-    if (!pooling or words < 2 or words > max_pooled_string_words) return null;
+    if (!pooling() or words < 2 or words > max_pooled_string_words) return null;
     const base = string_pools[words] orelse return null;
     const next = base[1];
     string_pools[words] = if (next == 0) null else @ptrFromInt(next);
@@ -147,14 +178,14 @@ fn poolPopString(words: usize) ?[]u64 {
 }
 
 fn poolPushString(base: [*]u64, words: usize) bool {
-    if (!pooling or words < 2 or words > max_pooled_string_words) return false;
+    if (!pooling() or words < 2 or words > max_pooled_string_words) return false;
     base[1] = if (string_pools[words]) |head| @intFromPtr(head) else 0;
     string_pools[words] = base;
     return true;
 }
 
 fn poolPopRecord() ?*Record {
-    if (!pooling) return null;
+    if (!pooling()) return null;
     const head = record_pool orelse return null;
     // The next pointer hides in the retired struct's name field.
     record_pool = @ptrFromInt(@intFromPtr(head.name.ptr));
@@ -163,7 +194,7 @@ fn poolPopRecord() ?*Record {
 }
 
 fn poolPushRecord(record: *Record) bool {
-    if (!pooling) return false;
+    if (!pooling()) return false;
     record.name = if (record_pool) |next|
         @as([*]const u8, @ptrCast(next))[0..1]
     else
@@ -173,21 +204,21 @@ fn poolPushRecord(record: *Record) bool {
 }
 
 fn poolPopCons() ?*Cons {
-    if (!pooling) return null;
+    if (!pooling()) return null;
     const head = cons_pool orelse return null;
     cons_pool = @constCast(head.tail);
     return head;
 }
 
 fn poolPushCons(cell: *Cons) bool {
-    if (!pooling) return false;
+    if (!pooling()) return false;
     cell.tail = cons_pool;
     cons_pool = cell;
     return true;
 }
 
 fn poolPopSlice(count: usize) ?[]Value {
-    if (!pooling or count == 0 or count > max_pooled_slice) return null;
+    if (!pooling() or count == 0 or count > max_pooled_slice) return null;
     const base = slice_pools[count] orelse return null;
     // The next pointer hides in the first payload word.
     const next: usize = @bitCast(base[1].int);
@@ -197,7 +228,7 @@ fn poolPopSlice(count: usize) ?[]Value {
 }
 
 fn poolPushSlice(payload: []const Value) bool {
-    if (!pooling or payload.len == 0 or payload.len > max_pooled_slice) return false;
+    if (!pooling() or payload.len == 0 or payload.len > max_pooled_slice) return false;
     const base: [*]Value = @constCast(payload.ptr) - 1;
     const next: usize = if (slice_pools[payload.len]) |head|
         @intFromPtr(head)
@@ -359,9 +390,10 @@ fn dropList(head: ?*const Cons) void {
 }
 
 /// Report leaked reference-counted allocations after main returns.
-/// A no-op in release builds.
+/// A no-op unless leak checking is on: Debug builds, or any build
+/// run with GLEAM_ZIG_LEAK_GATE=1 in the environment.
 pub fn leakCheckExit() void {
-    if (!leak_checking) return;
+    if (!leak_checking()) return;
     const leaks = debug_allocator.detectLeaks();
     if (leaks != 0) {
         std.debug.print("gleam-zig: {d} leaked allocation(s)\n", .{leaks});

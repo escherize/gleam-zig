@@ -508,7 +508,7 @@ pub fn zig_source(paths: &ProjectPaths, output: Option<Utf8PathBuf>) -> Result<(
         ));
     }
     single.push_str(&format!(
-        "pub fn main(init: @\"gleam$std\".process.Init.Minimal) void {{\n    @\"gleam$prelude\".process_args = init.args;\n    @\"gleam$prelude\".drop({}.@\"main\"());\n    @\"gleam$prelude\".leakCheckExit();\n}}\n",
+        "pub fn main(init: @\"gleam$std\".process.Init.Minimal) void {{\n    @\"gleam$prelude\".process_args = init.args;\n    @\"gleam$prelude\".process_environ = init.environ;\n    @\"gleam$prelude\".drop({}.@\"main\"());\n    @\"gleam$prelude\".leakCheckExit();\n}}\n",
         mangled(&format!("{package_name}/{package_name}"))
     ));
 
@@ -575,6 +575,7 @@ const P = @import("prelude.zig");
 const module = @import("{package_name}/{package_name}.zig");
 pub fn main(init: std.process.Init.Minimal) void {{
     P.process_args = init.args;
+    P.process_environ = init.environ;
     P.drop(module.@"main"());
     P.leakCheckExit();
 }}
