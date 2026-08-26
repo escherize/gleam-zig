@@ -33,6 +33,13 @@
     --pink-tint: #1a1420;
     --pink-seam: #453153;
     --green: #56d364;
+    /* Comparison-series neutrals. The accent rule reserves pink for Gleam
+       and amber for Zig and forbids inventing accent hues, so the other two
+       targets are deliberately colorless: they read as "not ours" and never
+       compete with amber for attention. Tokens, not literals, so the chart
+       series stay one decision. */
+    --series-node: #5a6472;
+    --series-erl: #3d4654;
 
     --code-text: #dbe2ea;
     --code-dim: #737e8d;
@@ -305,14 +312,14 @@
   .g-row { padding: 9px 0; border-bottom: 1px solid var(--seam-soft); }
   .g-row:last-child { border-bottom: none; }
   .g-name { font-weight: 600; color: var(--text); line-height: 1.35; }
-  .g-sub { display: block; font-weight: 400; font-size: 9.5px; color: var(--faint); margin-top: 2px; }
+  .g-sub { display: block; font-weight: 400; font-size: 10px; color: var(--faint); margin-top: 2px; }
   .g-cell { display: grid; gap: 3px; }
   .gl { display: grid; grid-template-columns: 24px minmax(0, 1fr) 46px; gap: 6px; align-items: center; }
-  .gl i { display: block; height: 5px; border-radius: 2px; background: #5a6472; min-width: 2px; }
+  .gl i { display: block; height: 5px; border-radius: 2px; background: var(--series-node); min-width: 2px; }
   .gl.zig i { background: var(--amber); }
   .gl b { font-weight: 400; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 10px; text-align: right; }
   .gl.zig b { color: var(--text); font-weight: 600; }
-  .g-lab { color: var(--faint); font-size: 9.5px; }
+  .g-lab { color: var(--faint); font-size: 10px; }
   .gl.zig .g-lab { color: var(--amber); font-weight: 600; }
   .g-note { margin-top: 12px; font-size: 11px; color: var(--faint); line-height: 1.55; max-width: none; }
   .g-note code { font-family: var(--font-mono); color: var(--dim); }
@@ -382,9 +389,9 @@
   .scatter .grid { stroke: var(--seam-soft); stroke-width: 1; }
   .scatter .axis-label { font-family: var(--font-mono); font-size: 10px; fill: var(--faint); }
   .scatter .dot-zig { fill: var(--amber); }
-  .scatter .dot-node { fill: #5a6472; }
-  .scatter .dot-erl { fill: #3d4654; stroke: #5a6472; stroke-width: 1; }
-  .scatter .dot-label { font-family: var(--font-mono); font-size: 9.5px; fill: var(--dim); }
+  .scatter .dot-node { fill: var(--series-node); }
+  .scatter .dot-erl { fill: var(--series-erl); stroke: var(--series-node); stroke-width: 1; }
+  .scatter .dot-label { font-family: var(--font-mono); font-size: 10px; fill: var(--dim); }
   .scatter .dot-label.zig { fill: var(--amber); }
   .scatter .corner { font-family: var(--font-mono); font-size: 10.5px; fill: var(--faint); font-style: italic; }
   .scatter [data-bench] { cursor: pointer; }
@@ -445,9 +452,9 @@
   /* optimization staircase */
   .stairs { display: block; width: 100%; height: auto; }
   .sgrid { stroke: var(--seam-soft); stroke-width: 1; }
-  .saxis { font-family: var(--font-mono); font-size: 9.5px; fill: var(--faint); }
+  .saxis { font-family: var(--font-mono); font-size: 10px; fill: var(--faint); }
   .spath { fill: none; stroke: var(--amber); stroke-width: 2; stroke-linejoin: round; }
-  .sdot { fill: var(--panel); stroke: #5a6472; stroke-width: 1.5; }
+  .sdot { fill: var(--panel); stroke: var(--series-node); stroke-width: 1.5; }
   .sdot.snow { fill: var(--amber); stroke: var(--amber); }
   .sval { font-family: var(--font-mono); font-size: 10px; fill: var(--dim); font-variant-numeric: tabular-nums; }
   .sval.snow { fill: var(--amber); font-weight: 600; }
@@ -536,8 +543,8 @@ provenance.
   </div>
   <div class="legend">
     <span><span class="sw" style="background:var(--amber)"></span>zig (static binary)</span>
-    <span><span class="sw" style="background:#5a6472"></span>node 22</span>
-    <span><span class="sw" style="background:#3d4654;border:1px solid #5a6472"></span>erlang / OTP 27 (CPU, boot excluded)</span>
+    <span><span class="sw" style="background:var(--series-node)"></span>node 22</span>
+    <span><span class="sw" style="background:var(--series-erl);border:1px solid var(--series-node)"></span>erlang / OTP 27 (CPU, boot excluded)</span>
   </div>
 
 <div class="panel glance-wrap">
