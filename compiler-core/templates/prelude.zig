@@ -142,11 +142,16 @@ pub const Closure = struct {
 // vector operation). Freed records, cons cells and small slices park in
 // threadlocal free lists for immediate reuse. Compiled out when leak
 // checking is on, keeping exact alloc/free pairing there.
-/// Object pooling is opt-in via GLEAM_ZIG_POOL=1. It was disabled for the
-/// record free-list corruption tracked as #16; that bug is fixed (the next
-/// pointer no longer hides in a slice field, see poolPushRecord), and the
-/// corpus now passes with pooling on. Kept opt-in until the default flip
-/// is measured on its own.
+/// Object pooling is on by default; GLEAM_ZIG_POOL=0 opts out. It was
+/// opt-in while the record free-list corruption (#16) was unfixed. With
+/// that fixed the flip measured 1.3-1.5x on allocation-heavy workloads
+/// (raytracer, tree, string_build), nothing slower, memory flat, and an
+/// identical corpus - so the default moved.
+///
+/// Leak checking still disables pooling outright: the gate wants exact
+/// alloc/free pairing. That also means the corpus's default configuration
+/// exercises the UNPOOLED path, which is how #16 survived every corpus
+/// run - pooled coverage needs HARNESS_LEAK_GATE=0.
 fn pooling() bool {
     if (leak_checking()) return false;
     switch (builtin.os.tag) {
@@ -155,9 +160,11 @@ fn pooling() bool {
     }
     for (process_environ.block.view().slice) |entry| {
         const kv = std.mem.span(entry);
-        if (std.mem.startsWith(u8, kv, "GLEAM_ZIG_POOL=")) return true;
+        if (std.mem.startsWith(u8, kv, "GLEAM_ZIG_POOL=")) {
+            return !std.mem.eql(u8, kv["GLEAM_ZIG_POOL=".len..], "0");
+        }
     }
-    return false;
+    return true;
 }
 const max_pooled_slice = 8;
 
