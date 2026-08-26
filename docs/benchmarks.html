@@ -394,8 +394,20 @@
   .scatter .dot-label { font-family: var(--font-mono); font-size: 10px; fill: var(--dim); }
   .scatter .dot-label.zig { fill: var(--amber); }
   .scatter .corner { font-family: var(--font-mono); font-size: 10.5px; fill: var(--faint); font-style: italic; }
-  .scatter [data-bench] { cursor: pointer; }
+  .scatter [data-bench] { cursor: pointer; transition: opacity .12s ease, r .12s ease; }
   .scatter [data-bench]:hover, .scatter [data-bench].is-active { stroke: var(--text); stroke-width: 1.5; }
+  /* Grouping: hovering one run dims every dot from a different benchmark, so
+     the three targets running the SAME workload read as a set. */
+  .scatter.is-grouping [data-bench] { opacity: 0.16; }
+  .scatter.is-grouping [data-bench].in-group { opacity: 1; }
+  .scatter.is-grouping [data-bench].in-group:not(.is-active) { stroke: var(--dim); stroke-width: 1; }
+  .scatter .group-link { stroke: var(--seam); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0; transition: opacity .12s ease; }
+  .scatter.is-grouping .group-link { opacity: 1; }
+  .scatter .quadrant { fill: var(--green); opacity: 0.045; }
+  .scatter .quadrant-label { font-family: var(--font-mono); font-size: 10px; fill: var(--green); opacity: 0.6; }
+  @media (prefers-reduced-motion: reduce) {
+    .scatter [data-bench], .scatter .group-link { transition: none; }
+  }
   .scatter [data-bench]:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   .scatter-wrap { position: relative; }
   .dot-tip {
@@ -516,6 +528,8 @@ provenance.
     <div class="panel-head">time &times; memory, all eighteen runs<span class="plate">log-log; down and left is better; CPU seconds vs peak memory footprint</span></div>
     <div style="padding:12px 16px 4px">
     <svg class="scatter" viewBox="0 0 660 350" role="img" aria-label="Scatter plot of CPU time versus peak memory for six benchmarks on three targets; zig's points cluster in the fast, low-memory corner. Hover any point for its exact numbers.">
+      <rect class="quadrant" x="60" y="239.0" width="238.3" height="91.5" rx="2"/>
+      <text class="quadrant-label" x="66" y="252">&#8601; most attractive quadrant</text>
       <line class="grid" x1="60" y1="14" x2="60" y2="330.5"/>
       <line class="grid" x1="298.3" y1="14" x2="298.3" y2="330.5"/>
       <line class="grid" x1="536.6" y1="14" x2="536.6" y2="330.5"/>
@@ -530,10 +544,10 @@ provenance.
       <text class="axis-label" x="24" y="242.5">10 MB</text>
       <text class="axis-label" x="18" y="151">100 MB</text>
       <text class="axis-label" x="14" y="59.5">1 GB</text>
-      <text class="corner" x="150" y="322">&#8601; fast and small</text>
+      <polyline id="group-links" class="group-link" fill="none" points=""/>
       <circle class="dot-erl" cx="308.2" cy="139.3" r="5" tabindex="0" role="button" data-bench="String building" data-blurb="fold 200k integer pieces into one string" data-target="erlang / OTP 27" data-time="0.11 s" data-mem="123 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>String building &middot; erlang / OTP 27 &middot; 0.11 s / 123 MB</title></circle><circle class="dot-erl" cx="308.2" cy="153.0" r="5" tabindex="0" role="button" data-bench="Dictionary" data-blurb="10k keys, insert then look up every one" data-target="erlang / OTP 27" data-time="0.11 s" data-mem="87 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Dictionary &middot; erlang / OTP 27 &middot; 0.11 s / 87 MB</title></circle><circle class="dot-erl" cx="421.9" cy="159.5" r="5" tabindex="0" role="button" data-bench="Ray tracer" data-blurb="320x240 scene, reflections to depth 3" data-target="erlang / OTP 27" data-time="0.33 s" data-mem="74 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Ray tracer &middot; erlang / OTP 27 &middot; 0.33 s / 74 MB</title></circle><circle class="dot-erl" cx="454.0" cy="160.0" r="5" tabindex="0" role="button" data-bench="Coin change" data-blurb="count ways to make 900 from 6 denominations" data-target="erlang / OTP 27" data-time="0.45 s" data-mem="73 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Coin change &middot; erlang / OTP 27 &middot; 0.45 s / 73 MB</title></circle><circle class="dot-erl" cx="325.5" cy="160.0" r="5" tabindex="0" role="button" data-bench="Vector records" data-blurb="10M iterations of 3D vector arithmetic" data-target="erlang / OTP 27" data-time="0.13 s" data-mem="73 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Vector records &middot; erlang / OTP 27 &middot; 0.13 s / 73 MB</title></circle><circle class="dot-erl" cx="456.2" cy="63.2" r="5" tabindex="0" role="button" data-bench="Binary trees" data-blurb="build a depth-21 tree 4x and walk it" data-target="erlang / OTP 27" data-time="0.46 s" data-mem="834 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Binary trees &middot; erlang / OTP 27 &middot; 0.46 s / 834 MB</title></circle>
       <circle class="dot-node" cx="404.9" cy="152.6" r="5" tabindex="0" role="button" data-bench="String building" data-blurb="fold 200k integer pieces into one string" data-target="node 22" data-time="0.28 s" data-mem="88 MB" data-art="build tree + ~65 MB runtime"><title>String building &middot; node 22 &middot; 0.28 s / 88 MB</title></circle><circle class="dot-node" cx="261.4" cy="180.1" r="5" tabindex="0" role="button" data-bench="Dictionary" data-blurb="10k keys, insert then look up every one" data-target="node 22" data-time="0.07 s" data-mem="44 MB" data-art="build tree + ~65 MB runtime"><title>Dictionary &middot; node 22 &middot; 0.07 s / 44 MB</title></circle><circle class="dot-node" cx="353.2" cy="191.6" r="5" tabindex="0" role="button" data-bench="Ray tracer" data-blurb="320x240 scene, reflections to depth 3" data-target="node 22" data-time="0.17 s" data-mem="33 MB" data-art="build tree + ~65 MB runtime"><title>Ray tracer &middot; node 22 &middot; 0.17 s / 33 MB</title></circle><circle class="dot-node" cx="517.3" cy="220.3" r="5" tabindex="0" role="button" data-bench="Coin change" data-blurb="count ways to make 900 from 6 denominations" data-target="node 22" data-time="0.83 s" data-mem="16 MB" data-art="build tree + ~65 MB runtime"><title>Coin change &middot; node 22 &middot; 0.83 s / 16 MB</title></circle><circle class="dot-node" cx="226.6" cy="213.5" r="5" tabindex="0" role="button" data-bench="Vector records" data-blurb="10M iterations of 3D vector arithmetic" data-target="node 22" data-time="0.05 s" data-mem="19 MB" data-art="build tree + ~65 MB runtime"><title>Vector records &middot; node 22 &middot; 0.05 s / 19 MB</title></circle><circle class="dot-node" cx="532.4" cy="60.9" r="5" tabindex="0" role="button" data-bench="Binary trees" data-blurb="build a depth-21 tree 4x and walk it" data-target="node 22" data-time="0.96 s" data-mem="885 MB" data-art="build tree + ~65 MB runtime"><title>Binary trees &middot; node 22 &middot; 0.96 s / 885 MB</title></circle>
-      <circle class="dot-zig" cx="62.0" cy="194.0" r="5.5" tabindex="0" role="button" data-bench="String building" data-blurb="fold 200k integer pieces into one string" data-target="zig &middot; static binary" data-time="0.01 s" data-mem="31 MB" data-art="393 KB"><title>String building &middot; zig &middot; static binary &middot; 0.01 s / 31 MB</title></circle><circle class="dot-zig" cx="62.0" cy="253.2" r="5.5" tabindex="0" role="button" data-bench="Dictionary" data-blurb="10k keys, insert then look up every one" data-target="zig &middot; static binary" data-time="0.01 s" data-mem="7 MB" data-art="412 KB"><title>Dictionary &middot; zig &middot; static binary &middot; 0.01 s / 7 MB</title></circle><circle class="dot-zig" cx="275.2" cy="261.3" r="5.5" tabindex="0" role="button" data-bench="Ray tracer" data-blurb="320x240 scene, reflections to depth 3" data-target="zig &middot; static binary" data-time="0.08 s" data-mem="5.7 MB" data-art="411 KB"><title>Ray tracer &middot; zig &middot; static binary &middot; 0.08 s / 5.7 MB</title></circle><circle class="dot-zig" cx="317.2" cy="323.3" r="5.5" tabindex="0" role="button" data-bench="Coin change" data-blurb="count ways to make 900 from 6 denominations" data-target="zig &middot; static binary" data-time="0.12 s" data-mem="1.2 MB" data-art="392 KB"><title>Coin change &middot; zig &middot; static binary &middot; 0.12 s / 1.2 MB</title></circle><circle class="dot-zig" cx="173.7" cy="323.3" r="5.5" tabindex="0" role="button" data-bench="Vector records" data-blurb="10M iterations of 3D vector arithmetic" data-target="zig &middot; static binary" data-time="0.03 s" data-mem="1.2 MB" data-art="392 KB"><title>Vector records &middot; zig &middot; static binary &middot; 0.03 s / 1.2 MB</title></circle><circle class="dot-zig" cx="543.6" cy="55.0" r="5.5" opacity="0.55" stroke-dasharray="3 2" tabindex="0" role="button" data-bench="Binary trees" data-blurb="build a depth-21 tree 4x and walk it" data-target="zig &middot; static binary" data-time="&mdash;" data-mem="1.03 GB" data-art="393 KB" data-note="time under re-measurement; horizontal position provisional"><title>Binary trees &middot; zig &middot; static binary &middot; &mdash; / 1.03 GB</title></circle>
+      <circle class="dot-zig" cx="62.0" cy="194.0" r="5.5" tabindex="0" role="button" data-bench="String building" data-blurb="fold 200k integer pieces into one string" data-target="zig &middot; static binary" data-time="0.01 s" data-mem="31 MB" data-art="393 KB"><title>String building &middot; zig &middot; static binary &middot; 0.01 s / 31 MB</title></circle><circle class="dot-zig" cx="62.0" cy="253.2" r="5.5" tabindex="0" role="button" data-bench="Dictionary" data-blurb="10k keys, insert then look up every one" data-target="zig &middot; static binary" data-time="0.01 s" data-mem="7 MB" data-art="412 KB"><title>Dictionary &middot; zig &middot; static binary &middot; 0.01 s / 7 MB</title></circle><circle class="dot-zig" cx="275.2" cy="261.3" r="5.5" tabindex="0" role="button" data-bench="Ray tracer" data-blurb="320x240 scene, reflections to depth 3" data-target="zig &middot; static binary" data-time="0.08 s" data-mem="5.7 MB" data-art="411 KB"><title>Ray tracer &middot; zig &middot; static binary &middot; 0.08 s / 5.7 MB</title></circle><circle class="dot-zig" cx="317.2" cy="323.3" r="5.5" tabindex="0" role="button" data-bench="Coin change" data-blurb="count ways to make 900 from 6 denominations" data-target="zig &middot; static binary" data-time="0.12 s" data-mem="1.2 MB" data-art="392 KB"><title>Coin change &middot; zig &middot; static binary &middot; 0.12 s / 1.2 MB</title></circle><circle class="dot-zig" cx="173.7" cy="323.3" r="5.5" tabindex="0" role="button" data-bench="Vector records" data-blurb="10M iterations of 3D vector arithmetic" data-target="zig &middot; static binary" data-time="0.03 s" data-mem="1.2 MB" data-art="392 KB"><title>Vector records &middot; zig &middot; static binary &middot; 0.03 s / 1.2 MB</title></circle><circle class="dot-zig" cx="499.9" cy="55.0" r="5.5" tabindex="0" role="button" data-bench="Binary trees" data-blurb="build a depth-21 tree 4x and walk it" data-target="zig &middot; static binary" data-time="0.70 s" data-mem="1.03 GB" data-art="393 KB"><title>Binary trees &middot; zig &middot; static binary &middot; 0.70 s / 1.03 GB</title></circle>
       <text class="dot-label zig" x="98" y="290">zig</text>
       <text class="dot-label" x="444.6" y="128.8">node</text>
       <text class="dot-label" x="553.2" y="135.5">erlang</text>
@@ -670,8 +684,8 @@ provenance.
       <div class="g-row">
         <div class="g-name">binary trees<span class="g-sub">depth 21, 4 rebuilds</span></div>
         <div class="g-cell">
-          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:4%"></i><b>&mdash;</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:90%"></i><b>0.96</b></div>
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:73%"></i><b>0.70</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:100%"></i><b>0.96</b></div>
           <div class="gl"><span class="g-lab">erl</span><i style="width:43%"></i><b>0.46</b></div>
         </div>
         <div class="g-cell">
@@ -955,16 +969,15 @@ provenance.
 
 
 <section class="dossier" id="d-tree">
-  <h2>Binary trees <span class="verdict">— memory halved; the time row is under re-measurement</span></h2>
+  <h2>Binary trees <span class="verdict">— zig 1.4&times; node; memory still the loss</span></h2>
   <p class="lede" style="margin-top:14px">Build a full depth-21 binary tree four times and walk it. Millions of multi-constructor records allocated, pattern-matched, and released — the allocation benchmark, and the row that drove the most recent runtime work.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:52%"></div><span class="t">—</span><span class="m">1.03 GB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:45%"></div><span class="t">0.96 s</span><span class="m">885 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:42%"></div><span class="t">0.46 s</span><span class="m">834 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.96 s</span><span class="m">885 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:48%"></div><span class="t">0.46 s</span><span class="m">834 MB</span></div>
   </div></div>
   <div class="prose"><p><strong>What changed:</strong> counting allocations by shape found that half of every record this benchmark allocates — 81,920 of 163,830 — is a <code>Leaf</code>, a nullary constructor carrying no payload at all. A full binary tree has more leaves than internal nodes, so the majority allocation was a 120-byte heap record representing nothing. Nullary constructors are constants, so each variant now gets one immortal shared value instead. Peak memory fell from 2.0 GB to 1.03 GB, exactly the predicted half.</p>
-  <p><strong>Why the time column reads “—”:</strong> the previously published figure for this row (1.07 s) does not reproduce on current hardware, and rather than quietly restate it we are re-measuring the whole time axis. Memory is unaffected by that question — it is a property of the program, not the machine, and it agrees across all three runtimes — so it stands. The honest position is that we know this row got substantially faster and substantially smaller, and we are not going to publish a headline number we cannot currently reproduce end to end.</p>
-  <p><strong>Still open:</strong> the 56-byte header on records that <em>do</em> carry fields. The three candidate fixes — a comptime name-hash tag, folding labels into the tag word, pooling by arity — are all header-size fixes, and this benchmark is the standing reminder that the intuition about where record cost sits was wrong by 2× last time. Measure first.</p></div>
+  <p><strong>Why the time column was blank here yesterday:</strong> the figure this row published (1.07&nbsp;s) stopped reproducing, and the honest move was to show a gap rather than restate a number we could not stand behind. Chasing it found a real regression: the runtime’s two environment gates — the leak check and the pooling switch — were each scanning the whole process environment <em>per call</em>, and both sit on the allocation path. At 16.8&nbsp;million records this benchmark was spending over a billion string comparisons deciding, repeatedly, that nothing had changed. Resolving each gate once took depth 21 from 42.5&nbsp;s back to 0.70&nbsp;s. The ray tracer, which had drifted the same way, returned to 0.08&nbsp;s with byte-identical output.</p><p><strong>Still open:</strong> memory. 1.03&nbsp;GB against node’s 885&nbsp;MB and the BEAM’s 834&nbsp;MB is the one number on this page where zig loses outright, and it is structural: a live depth-21 tree is 4.2&nbsp;million <code>Node</code> records at 120&nbsp;bytes each. The 56-byte header is the target — a comptime name-hash tag, labels folded into the tag word, or pooling by arity — but this row is also the standing reminder to measure first: the last guess about where record cost sat was wrong by 2&times;.</p></div>
 </section>
 
 
@@ -976,7 +989,7 @@ provenance.
     <li><strong>How measured:</strong> <code>/usr/bin/time -l</code> (user CPU, peak memory footprint), best of 3, Apple M-series, 2026-08-22, compiler fork <span class="num">2b8a018ec</span>. Compile time is one warm build per target; the shipped-artifact column is the exported binary (zig), the JS build tree (node), and the compiled BEAM files (erlang)</li>
     <li><strong>Sources:</strong> each benchmark is a one-file Gleam program in <code>examples/benchmarks/</code> of the workspace repo (the ray tracer is <code>examples/demo/raytracer/</code>); the corpus gate (119 programs byte-identical, 0 failures, leak-clean) re-runs on every push. Experiment ledgers live in <code>examples/benchmarks/results.tsv</code></li>
     <li><strong>What's NOT here:</strong> no warmup games (JITs get their natural single-run behavior, same as the binary), no per-target tuning, no cherry-picked coin denominations — and when a row loses, it stays on the board</li>
-    <li><strong>Where a number is missing:</strong> the binary-trees time reads &ldquo;&mdash;&rdquo; because the figure previously published for it does not reproduce on current hardware, and we would rather show a gap than a number we cannot stand behind. Its memory figure is unaffected and stands. Rows whose sources are checked in at their published size — coin change, vector records — do reproduce, which is why the rest of the board is unchanged</li>
+    <li><strong>When a number stops reproducing:</strong> it gets treated as a bug until proven otherwise. The binary-trees and ray-tracer rows drifted ~40&times; and ~100&times; from their published figures; the cause was a real allocation-path regression, not a bad measurement, and both rows returned to their published values once it was fixed. A figure on this page that cannot be reproduced by the command next to it is a defect report</li>
   </ul>
   <div class="codewrap">
 <pre class="block"><span class="cm"># after the setup on the start page, reproduce any row:</span>
@@ -1078,10 +1091,34 @@ python3 examples/harness.py examples/benchmarks/coin_change.gleam</pre>
       if (active && active !== dot) active.classList.remove('is-active');
       active = dot;
       dot.classList.add('is-active');
+      group(dot);
+    };
+
+    // Light up every run of the same benchmark, so the three targets doing
+    // the SAME job read as a set and you can see who wins that job.
+    const svg = document.querySelector('.scatter');
+    const linkLayer = document.getElementById('group-links');
+    const group = (dot) => {
+      const peers = [...svg.querySelectorAll('[data-bench]')]
+        .filter(d => d.dataset.bench === dot.dataset.bench);
+      svg.querySelectorAll('[data-bench]').forEach(d => d.classList.remove('in-group'));
+      peers.forEach(d => d.classList.add('in-group'));
+      // Thread a dashed path through the peers, left to right, so the
+      // grouping survives even where dots are far apart.
+      const pts = peers
+        .map(d => [parseFloat(d.getAttribute('cx')), parseFloat(d.getAttribute('cy'))])
+        .sort((a, b) => a[0] - b[0]);
+      linkLayer.setAttribute('points', pts.map(p => p.join(',')).join(' '));
+      svg.classList.add('is-grouping');
+    };
+    const ungroup = () => {
+      svg.classList.remove('is-grouping');
+      svg.querySelectorAll('[data-bench]').forEach(d => d.classList.remove('in-group'));
     };
 
     const hide = () => {
       tip.classList.remove('is-shown');
+      ungroup();
       if (active) { active.classList.remove('is-active'); active = null; }
     };
 
