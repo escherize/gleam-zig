@@ -285,3 +285,21 @@ fn create_tar_archive_sets_proper_permissions() {
         assert_eq!(mode, 0o600, "entry {path_str} has unexpected mode")
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn exit_code_reports_signal_death_as_nonzero() {
+    let normal = std::process::Command::new("sh")
+        .args(["-c", "exit 3"])
+        .status()
+        .expect("spawn sh");
+    assert_eq!(super::exit_code(normal), 3);
+
+    // SIGSEGV is how a crashing compiled binary dies; a shell reports 139.
+    let killed = std::process::Command::new("sh")
+        .args(["-c", "kill -SEGV $$"])
+        .status()
+        .expect("spawn sh");
+    assert_eq!(killed.code(), None, "process should have died by signal");
+    assert_eq!(super::exit_code(killed), 139);
+}

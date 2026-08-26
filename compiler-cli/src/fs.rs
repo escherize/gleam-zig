@@ -239,7 +239,7 @@ impl CommandExecutor for ProjectIO {
             .status();
 
         match result {
-            Ok(status) => Ok(status.code().unwrap_or_default()),
+            Ok(status) => Ok(exit_code(status)),
 
             Err(error) => Err(match error.kind() {
                 io::ErrorKind::NotFound => Error::ShellProgramNotFound {
@@ -254,6 +254,22 @@ impl CommandExecutor for ProjectIO {
             }),
         }
     }
+}
+
+/// A process killed by a signal has no exit code. Report it the way a shell
+/// does, as 128 + the signal number, so a crash never looks like success.
+#[cfg(target_family = "unix")]
+fn exit_code(status: std::process::ExitStatus) -> i32 {
+    use std::os::unix::process::ExitStatusExt;
+    status
+        .code()
+        .or_else(|| status.signal().map(|signal| 128 + signal))
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_family = "unix"))]
+fn exit_code(status: std::process::ExitStatus) -> i32 {
+    status.code().unwrap_or_default()
 }
 
 impl BeamCompilerIO for ProjectIO {
