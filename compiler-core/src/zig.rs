@@ -2916,7 +2916,7 @@ impl<'a, 'm> FunctionGenerator<'a, 'm> {
             }
         }
         if arguments.is_empty() {
-            return format!("P.makeRecord(\"{name}\", &[_]Value{{}})");
+            return format!("P.nullaryRecord(\"{name}\")");
         }
         let labels = field_map.map(|field_map| {
             let mut labels: Vec<Option<&EcoString>> = vec![None; field_map.arity as usize];

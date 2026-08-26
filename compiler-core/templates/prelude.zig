@@ -480,6 +480,31 @@ pub fn makeRecord(name: []const u8, fields: []const Value) Value {
     return makeRecordL(name, fields, &.{});
 }
 
+/// A nullary constructor (`Leaf`, `None`, ...) carries no payload, so every
+/// occurrence of one variant is indistinguishable from every other. Hand
+/// out a single immortal static per variant instead of allocating: in the
+/// tree benchmark half of all record allocations are nullary.
+///
+/// The static's count starts at a sentinel far from both 0 and 1, so the
+/// ordinary rc paths stay correct with no branch added to them: `drop`
+/// never sees it reach 0 and never frees it, and `dropReuseRecord` never
+/// sees rc == 1 so FBIP reuse never claims it. Counting still happens (it
+/// is a plain `var`, so writable) — it just never reaches a value that
+/// would hand the allocation to anyone.
+const immortal_rc: usize = std.math.maxInt(usize) / 2;
+
+pub fn nullaryRecord(comptime name: []const u8) Value {
+    const shared = struct {
+        var record: Record = .{
+            .rc = immortal_rc,
+            .name = name,
+            .fields = &.{},
+            .labels = &.{},
+        };
+    };
+    return Value{ .record = &shared.record };
+}
+
 /// Consumes the fields; name and labels must be static strings.
 pub fn makeRecordL(
     name: []const u8,
