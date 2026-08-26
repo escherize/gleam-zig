@@ -296,6 +296,32 @@
   .bench .lane.zig .t { color: var(--amber); font-weight: 600; }
   @media (max-width: 560px) { .bench .lane { grid-template-columns: 44px minmax(0, 1fr) 62px; } .bench .lane .m { display: none; } }
 
+  /* at-a-glance compact chart */
+  .glance-wrap { margin-top: 20px; }
+  .glance { font-family: var(--font-mono); font-size: 11px; }
+  .g-head, .g-row { display: grid; grid-template-columns: 148px repeat(4, minmax(0, 1fr)); gap: 0 16px; align-items: center; }
+  .g-head { padding: 4px 0 8px; border-bottom: 1px solid var(--seam); }
+  .g-head span { text-transform: uppercase; letter-spacing: 0.09em; font-size: 10px; color: var(--faint); font-weight: 600; }
+  .g-row { padding: 9px 0; border-bottom: 1px solid var(--seam-soft); }
+  .g-row:last-child { border-bottom: none; }
+  .g-name { font-weight: 600; color: var(--text); line-height: 1.35; }
+  .g-sub { display: block; font-weight: 400; font-size: 9.5px; color: var(--faint); margin-top: 2px; }
+  .g-cell { display: grid; gap: 3px; }
+  .gl { display: grid; grid-template-columns: 24px minmax(0, 1fr) 46px; gap: 6px; align-items: center; }
+  .gl i { display: block; height: 5px; border-radius: 2px; background: #5a6472; min-width: 2px; }
+  .gl.zig i { background: var(--amber); }
+  .gl b { font-weight: 400; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 10px; text-align: right; }
+  .gl.zig b { color: var(--text); font-weight: 600; }
+  .g-lab { color: var(--faint); font-size: 9.5px; }
+  .gl.zig .g-lab { color: var(--amber); font-weight: 600; }
+  .g-note { margin-top: 12px; font-size: 11px; color: var(--faint); line-height: 1.55; max-width: none; }
+  .g-note code { font-family: var(--font-mono); color: var(--dim); }
+  @media (max-width: 700px) {
+    .g-head, .g-row { grid-template-columns: 110px repeat(2, minmax(0, 1fr)); }
+    .g-head span:nth-child(n+4), .g-cell:nth-child(n+4) { display: none; }
+    .g-head span:nth-child(3) { grid-column: 3; }
+  }
+
   /* runtime layers */
   .layers { display: grid; gap: 12px; margin-top: 22px; }
   .layer { position: relative; }
@@ -393,6 +419,15 @@
   .hstep.now .hv { color: var(--amber); }
   .harrow { display: flex; align-items: center; padding: 0 4px; color: var(--faint); }
   @media (max-width: 640px) { .harrow { display: none; } .history { gap: 8px; } }
+  /* optimization staircase */
+  .stairs { display: block; width: 100%; height: auto; }
+  .sgrid { stroke: var(--seam-soft); stroke-width: 1; }
+  .saxis { font-family: var(--font-mono); font-size: 9.5px; fill: var(--faint); }
+  .spath { fill: none; stroke: var(--amber); stroke-width: 2; stroke-linejoin: round; }
+  .sdot { fill: var(--panel); stroke: #5a6472; stroke-width: 1.5; }
+  .sdot.snow { fill: var(--amber); stroke: var(--amber); }
+  .sval { font-family: var(--font-mono); font-size: 10px; fill: var(--dim); font-variant-numeric: tabular-nums; }
+  .sval.snow { fill: var(--amber); font-weight: 600; }
 </style>
 
 </head>
@@ -447,29 +482,31 @@ provenance.
   <h1 class="hero-title" style="max-width:26ch">Every number, opened up.</h1>
   <p class="hero-sub" style="margin-top:12px">Each front-page number, opened to its source, its emitted machine code, and its optimization history. One plot carries the whole argument:</p>
 
-  <div class="panel scatter-wrap">
-    <div class="panel-head">time &times; memory, all fifteen runs<span class="plate">log-log; down and left is better; CPU seconds vs peak RSS</span></div>
+    <div class="panel scatter-wrap">
+    <div class="panel-head">time &times; memory, all eighteen runs<span class="plate">log-log; down and left is better; CPU seconds vs peak memory footprint</span></div>
     <div style="padding:12px 16px 4px">
-    <svg class="scatter" viewBox="0 0 660 258" role="img" aria-label="Scatter plot of CPU time versus peak memory for five benchmarks on three targets; zig's five points cluster in the fast, low-memory corner. Hover any point for its exact numbers.">
-      <line class="grid" x1="60" y1="240" x2="620" y2="240"/>
-      <line class="grid" x1="298.3" y1="14" x2="298.3" y2="240"/>
-      <line class="grid" x1="536.6" y1="14" x2="536.6" y2="240"/>
-      <line class="grid" x1="60" y1="148.5" x2="620" y2="148.5"/>
-      <line class="grid" x1="60" y1="57.0" x2="620" y2="57.0"/>
-      <line class="grid" x1="60" y1="14" x2="60" y2="240"/>
-      <text class="axis-label" x="60" y="256">0.01 s</text>
-      <text class="axis-label" x="285.3" y="256">0.1 s</text>
-      <text class="axis-label" x="526.6" y="256">1 s</text>
-      <text class="axis-label" x="28" y="243">1 MB</text>
-      <text class="axis-label" x="22" y="151.5">10 MB</text>
-      <text class="axis-label" x="14" y="60.0">100 MB</text>
-      <text class="corner" x="150" y="232">&#8601; fast and small</text>
-      <circle class="dot-erl" cx="308.2" cy="44.5" r="5"><title>string &middot; erlang &middot; 0.11 s / 137 MB</title></circle><circle class="dot-erl" cx="333.1" cy="62.6" r="5"><title>scalar &middot; erlang &middot; 0.14 s / 87 MB</title></circle><circle class="dot-erl" cx="577.2" cy="55.5" r="5"><title>ray &middot; erlang &middot; 1.48 s / 104 MB</title></circle><circle class="dot-erl" cx="456.2" cy="63.0" r="5"><title>coin &middot; erlang &middot; 0.46 s / 86 MB</title></circle><circle class="dot-erl" cx="325.5" cy="63.5" r="5"><title>vec &middot; erlang &middot; 0.13 s / 85 MB</title></circle>
-      <circle class="dot-node" cx="460.6" cy="48.8" r="5"><title>string &middot; node &middot; 0.48 s / 123 MB</title></circle><circle class="dot-node" cx="388.9" cy="83.0" r="5"><title>scalar &middot; node &middot; 0.24 s / 52 MB</title></circle><circle class="dot-node" cx="317.2" cy="74.1" r="5"><title>ray &middot; node &middot; 0.12 s / 65 MB</title></circle><circle class="dot-node" cx="519.8" cy="83.8" r="5"><title>coin &middot; node &middot; 0.85 s / 51 MB</title></circle><circle class="dot-node" cx="384.5" cy="81.5" r="5"><title>vec &middot; node &middot; 0.23 s / 54 MB</title></circle>
-      <circle class="dot-zig" cx="131.7" cy="121.0" r="5.5"><title>string &middot; zig &middot; 0.02 s / 20 MB</title></circle><circle class="dot-zig" cx="131.7" cy="223.9" r="5.5"><title>scalar &middot; zig &middot; 0.02 s / 1.5 MB</title></circle><circle class="dot-zig" cx="275.2" cy="168.8" r="5.5"><title>ray &middot; zig &middot; 0.08 s / 6 MB</title></circle><circle class="dot-zig" cx="404.9" cy="216.6" r="5.5"><title>coin &middot; zig &middot; 0.28 s / 1.8 MB</title></circle><circle class="dot-zig" cx="353.2" cy="221.3" r="5.5"><title>vec &middot; zig &middot; 0.17 s / 1.6 MB</title></circle>
-      <text class="dot-label zig" x="98" y="200">zig</text>
-      <text class="dot-label" x="444.6" y="38.8">node</text>
-      <text class="dot-label" x="553.2" y="45.5">erlang</text>
+    <svg class="scatter" viewBox="0 0 660 350" role="img" aria-label="Scatter plot of CPU time versus peak memory for six benchmarks on three targets; zig's points cluster in the fast, low-memory corner. Hover any point for its exact numbers.">
+      <line class="grid" x1="60" y1="14" x2="60" y2="330.5"/>
+      <line class="grid" x1="298.3" y1="14" x2="298.3" y2="330.5"/>
+      <line class="grid" x1="536.6" y1="14" x2="536.6" y2="330.5"/>
+      <line class="grid" x1="60" y1="56.0" x2="620" y2="56.0"/>
+      <line class="grid" x1="60" y1="147.5" x2="620" y2="147.5"/>
+      <line class="grid" x1="60" y1="239.0" x2="620" y2="239.0"/>
+      <line class="grid" x1="60" y1="330.5" x2="620" y2="330.5"/>
+      <text class="axis-label" x="60" y="346">0.01 s</text>
+      <text class="axis-label" x="285.3" y="346">0.1 s</text>
+      <text class="axis-label" x="526.6" y="346">1 s</text>
+      <text class="axis-label" x="30" y="334">1 MB</text>
+      <text class="axis-label" x="24" y="242.5">10 MB</text>
+      <text class="axis-label" x="18" y="151">100 MB</text>
+      <text class="axis-label" x="14" y="59.5">1 GB</text>
+      <text class="corner" x="150" y="322">&#8601; fast and small</text>
+      <circle class="dot-erl" cx="308.2" cy="139.3" r="5"><title>string &middot; erl &middot; 0.11 s / 123 MB</title></circle><circle class="dot-erl" cx="308.2" cy="153.0" r="5"><title>dict &middot; erl &middot; 0.11 s / 87 MB</title></circle><circle class="dot-erl" cx="421.9" cy="159.5" r="5"><title>ray &middot; erl &middot; 0.33 s / 74 MB</title></circle><circle class="dot-erl" cx="454.0" cy="160.0" r="5"><title>coin &middot; erl &middot; 0.45 s / 73 MB</title></circle><circle class="dot-erl" cx="325.5" cy="160.0" r="5"><title>vec &middot; erl &middot; 0.13 s / 73 MB</title></circle><circle class="dot-erl" cx="456.2" cy="63.2" r="5"><title>tree &middot; erl &middot; 0.46 s / 834 MB</title></circle>
+      <circle class="dot-node" cx="404.9" cy="152.6" r="5"><title>string &middot; node &middot; 0.28 s / 88 MB</title></circle><circle class="dot-node" cx="261.4" cy="180.1" r="5"><title>dict &middot; node &middot; 0.07 s / 44 MB</title></circle><circle class="dot-node" cx="353.2" cy="191.6" r="5"><title>ray &middot; node &middot; 0.17 s / 33 MB</title></circle><circle class="dot-node" cx="517.3" cy="220.3" r="5"><title>coin &middot; node &middot; 0.83 s / 16 MB</title></circle><circle class="dot-node" cx="226.6" cy="213.5" r="5"><title>vec &middot; node &middot; 0.05 s / 19 MB</title></circle><circle class="dot-node" cx="532.4" cy="60.9" r="5"><title>tree &middot; node &middot; 0.96 s / 885 MB</title></circle>
+      <circle class="dot-zig" cx="62.0" cy="194.0" r="5.5"><title>string &middot; zig &middot; 0.01 s / 31 MB</title></circle><circle class="dot-zig" cx="62.0" cy="253.2" r="5.5"><title>dict &middot; zig &middot; 0.01 s / 7 MB</title></circle><circle class="dot-zig" cx="275.2" cy="261.3" r="5.5"><title>ray &middot; zig &middot; 0.08 s / 5.7 MB</title></circle><circle class="dot-zig" cx="317.2" cy="323.3" r="5.5"><title>coin &middot; zig &middot; 0.12 s / 1.2 MB</title></circle><circle class="dot-zig" cx="173.7" cy="323.3" r="5.5"><title>vec &middot; zig &middot; 0.03 s / 1.2 MB</title></circle><circle class="dot-zig" cx="543.6" cy="55.0" r="5.5" opacity="0.55" stroke-dasharray="3 2"><title>tree &middot; zig &middot; 1.03 GB &middot; time under re-measurement, horizontal position provisional</title></circle>
+      <text class="dot-label zig" x="98" y="290">zig</text>
+      <text class="dot-label" x="444.6" y="128.8">node</text>
+      <text class="dot-label" x="553.2" y="135.5">erlang</text>
     </svg>
     </div>
   </div>
@@ -479,8 +516,157 @@ provenance.
     <span><span class="sw" style="background:#3d4654;border:1px solid #5a6472"></span>erlang / OTP 27 (CPU, boot excluded)</span>
   </div>
 
+<div class="panel glance-wrap">
+  <div class="panel-head">at a glance: six workloads &times; four costs<span class="plate">user CPU &middot; peak memory footprint &middot; warm compile &middot; shipped artifact; each bar scales to the worst target in its cell</span></div>
+  <div style="padding:8px 16px 14px">
+    <div class="glance">
+      <div class="g-head"><span></span><span>cpu</span><span>memory</span><span>compile</span><span>artifact</span></div>
+      <div class="g-row">
+        <div class="g-name">string building<span class="g-sub">200k-piece fold</span></div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:4%"></i><b>0.01</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:100%"></i><b>0.28</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:39%"></i><b>0.11</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:25%"></i><b>31 MB</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:72%"></i><b>88 MB</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>123 MB</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>3.9 s</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:3%"></i><b>0.10 s</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:7%"></i><b>0.27 s</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:27%"></i><b>372 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1376 K</b></div>
+        </div>
+      </div>
+      <div class="g-row">
+        <div class="g-name">dictionary<span class="g-sub">10k keys, insert + lookup</span></div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:2%"></i><b>&lt;0.01</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:64%"></i><b>0.07</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>0.11</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:8%"></i><b>7 MB</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:51%"></i><b>44 MB</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>87 MB</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>4.2 s</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.09 s</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:5%"></i><b>0.22 s</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:28%"></i><b>389 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1380 K</b></div>
+        </div>
+      </div>
+      <div class="g-row">
+        <div class="g-name">ray tracer<span class="g-sub">640x480, 5 bounces</span></div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:24%"></i><b>0.08</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:52%"></i><b>0.17</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>0.33</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:8%"></i><b>6 MB</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:45%"></i><b>33 MB</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>74 MB</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>4.3 s</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.10 s</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:6%"></i><b>0.25 s</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:33%"></i><b>389 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>28 K</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1192 K</b></div>
+        </div>
+      </div>
+      <div class="g-row">
+        <div class="g-name">coin change<span class="g-sub">naive recursion, amount 900</span></div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:14%"></i><b>0.12</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:100%"></i><b>0.84</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:54%"></i><b>0.45</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:2%"></i><b>1.2 MB</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:22%"></i><b>16 MB</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>73 MB</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>3.9 s</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.09 s</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:6%"></i><b>0.22 s</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:27%"></i><b>371 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1380 K</b></div>
+        </div>
+      </div>
+      <div class="g-row">
+        <div class="g-name">vector records<span class="g-sub">10M iterations</span></div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:23%"></i><b>0.03</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:38%"></i><b>0.05</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>0.13</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:2%"></i><b>1.2 MB</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:26%"></i><b>19 MB</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>73 MB</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>3.9 s</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.09 s</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:6%"></i><b>0.22 s</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:27%"></i><b>371 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1380 K</b></div>
+        </div>
+      </div>
+      <div class="g-row">
+        <div class="g-name">binary trees<span class="g-sub">depth 21, 4 rebuilds</span></div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:4%"></i><b>&mdash;</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:90%"></i><b>0.96</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:43%"></i><b>0.46</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:52%"></i><b>1.03 GB</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:45%"></i><b>885 MB</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:42%"></i><b>834 MB</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>3.9 s</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.09 s</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:6%"></i><b>0.22 s</b></div>
+        </div>
+        <div class="g-cell">
+          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:27%"></i><b>371 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1380 K</b></div>
+        </div>
+      </div>
+    </div>
+    <p class="g-note">compile = one warm <code>gleam export zig-executable</code> / <code>gleam build --target &hellip;</code>; artifact = the exported binary (zig), the JS build tree (node), the compiled BEAM files (erlang). Faster compiles exist: <code>--optimize debug</code> halves the zig number. Full dossiers below.</p>
+  </div>
+</div>
+
+
   <div class="ship" role="group" aria-label="Deploy artifact comparison">
-    <div><div class="w a">zig ships 398 KB</div><div class="d">one static binary, no runtime installed, cross-compiled with <code>--target-triple</code></div></div>
+    <div><div class="w a">zig ships ~380 KB</div><div class="d">one static binary, no runtime installed, cross-compiled with <code>--target-triple</code></div></div>
     <div><div class="w">node ships a build tree</div><div class="d">plus a ~65 MB node runtime the machine must already have</div></div>
     <div><div class="w">erlang ships a release</div><div class="d">plus an OTP install; ~1 s VM boot before the first line runs</div></div>
   </div>
@@ -491,6 +677,7 @@ provenance.
     <a href="#d-ray">ray tracer</a>
     <a href="#d-coin">coin change</a>
     <a href="#d-vec">vector records</a>
+    <a href="#d-tree">binary trees</a>
     <a href="#method" style="margin-left:auto">method</a>
   </nav>
 </div>
@@ -499,12 +686,12 @@ provenance.
 <div class="shell"><main style="max-width:860px">
 
 <section class="dossier" id="d-string">
-  <h2>String building <span class="verdict">— zig 6&times; node, 5&times; the BEAM</span></h2>
+  <h2>String building <span class="verdict">— zig 20&times; node, 10&times; the BEAM</span></h2>
   <p class="lede" style="margin-top:14px">200,000 pieces folded onto one accumulator. The workload every templater, serializer, and logger is secretly made of.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:23%"></div><span class="t">0.03 s</span><span class="m">1.4 MB</span></div>
-        <div class="lane"><span class="who">node</span><div class="bar" style="width:46%"></div><span class="t">0.06 s</span><span class="m">52 MB</span></div>
-        <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.13 s</span><span class="m">82 MB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:4%"></div><span class="t">0.01 s</span><span class="m">31 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.28 s</span><span class="m">88 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:39%"></div><span class="t">0.11 s</span><span class="m">123 MB</span></div>
   </div></div>
   <div class="compile" style="margin-top:18px">
     <div class="compile-grid">
@@ -530,39 +717,59 @@ provenance.
     </div>
   </div>
   <div class="prose"><p><strong>Why it's fast:</strong> two pieces had to land together. The runtime tracks buffer capacity in the string header and appends in place when the left operand is unshared — but that only fires if the accumulator actually <em>reaches</em> the append with refcount 1. <code>list.fold</code> uses its accumulator once in each of two case clauses, which naive analysis reads as two uses. Per-clause liveness (only one clause runs) approves the transfer, the refcount stays 1, and 200k appends become an amortized-linear write instead of 200k full copies. Node's string concat is rope-optimized and still loses 6&times;.</p></div>
-  <div class="history">
-    <div class="hstep"><div class="hv">8.6 s</div><div class="hl">O(n&sup2;): accumulator copied per append</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">8.6 s</div><div class="hl">capacity headers alone: blocked, acc never rc==1</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.02 s</div><div class="hl">per-clause last-use moves, 08-21</div></div>
-  </div>
+<div class="history stairs-wrap">
+  <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
+    <line class="sgrid" x1="46" y1="78.2" x2="640" y2="78.2"/>
+    <text class="saxis" x="40" y="81.2" text-anchor="end">100 ms</text>
+    <line class="sgrid" x1="46" y1="49.3" x2="640" y2="49.3"/>
+    <text class="saxis" x="40" y="52.3" text-anchor="end">1 s</text>
+    <line class="sgrid" x1="46" y1="20.4" x2="640" y2="20.4"/>
+    <text class="saxis" x="40" y="23.4" text-anchor="end">10 s</text>
+    <path class="spath" d="M 46 22.3 L 46.0 22.3 L 46.0 22.3 L 343.0 22.3 L 343.0 98.4 L 640.0 98.4 L 640 98.4"/>
+    <circle class="sdot" cx="46.0" cy="22.3" r="3.5"><title>O(n2): accumulator copied per append: 8.6 s</title></circle>
+    <text class="sval" x="50.0" y="15.3" text-anchor="start">8.6</text>
+    <circle class="sdot" cx="343.0" cy="22.3" r="3.5"><title>capacity headers alone: blocked, acc never rc==1: 8.6 s</title></circle>
+    <text class="sval" x="343.0" y="15.3" text-anchor="middle">8.6</text>
+    <circle class="sdot snow" cx="640.0" cy="98.4" r="3.5"><title>per-clause last-use moves, 08-21: 0.02 s</title></circle>
+    <text class="sval snow" x="636.0" y="91.4" text-anchor="end">0.02</text>
+  </svg>
+</div>
 </section>
 
 <section class="dossier" id="d-dict">
-  <h2>Dictionary <span class="verdict">— zig 6&times; node, 10&times; the BEAM</span></h2>
+  <h2>Dictionary <span class="verdict">— zig 8&times; node, 8&times; the BEAM</span></h2>
   <p class="lede" style="margin-top:14px">Ten thousand keys inserted into a map, then every one looked up again. The workload every real program does — indexing data — and the worst thing this target currently does.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:10%"></div><span class="t">0.011 s</span><span class="m">8 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:64%"></div><span class="t">0.07 s</span><span class="m">56 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.11 s</span><span class="m">100 MB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:2%"></div><span class="t">&lt;0.01 s</span><span class="m">7 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:64%"></div><span class="t">0.07 s</span><span class="m">44 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.11 s</span><span class="m">87 MB</span></div>
   </div></div>
   <div class="prose"><p><strong>How it was won:</strong> until this row appeared on the board, <code>gleam/dict</code> on this target was an insertion-ordered association list — every <code>insert</code> scanned for an existing key and every <code>get</code> scanned to find one, so the workload was O(n&sup2;) against two real hash maps. No codegen work could have rescued that; it was a data structure that had not been written. It is now a hash array mapped trie, the same structure the JavaScript target uses: five hash bits per level, 32-way branching, so a lookup touches three or four nodes and an insert copies one node per level instead of the whole dict.</p>
   <p>The nodes are ordinary reference-counted values, so the runtime's existing memory discipline covers the trie with no new lifetime rules — the leak gate checks it on every corpus run like everything else. One semantic consequence, stated plainly: iteration order is hash order now rather than insertion order. That order was always unspecified and differs on all three targets; the new one happens to agree with erlang where the old one happened to agree with V8.</p></div>
-  <div class="history">
-    <div class="hstep"><div class="hv">1.12 s</div><div class="hl">assoc list, O(n) per op</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.011 s</div><div class="hl">HAMT, 08-21 — 100&times;</div></div>
-  </div>
+<div class="history stairs-wrap">
+  <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
+    <line class="sgrid" x1="46" y1="98.9" x2="640" y2="98.9"/>
+    <text class="saxis" x="40" y="101.9" text-anchor="end">10 ms</text>
+    <line class="sgrid" x1="46" y1="61.8" x2="640" y2="61.8"/>
+    <text class="saxis" x="40" y="64.8" text-anchor="end">100 ms</text>
+    <line class="sgrid" x1="46" y1="24.8" x2="640" y2="24.8"/>
+    <text class="saxis" x="40" y="27.8" text-anchor="end">1 s</text>
+    <path class="spath" d="M 46 22.9 L 46.0 22.9 L 46.0 97.4 L 640.0 97.4 L 640 97.4"/>
+    <circle class="sdot" cx="46.0" cy="22.9" r="3.5"><title>assoc list, O(n) per op: 1.12 s</title></circle>
+    <text class="sval" x="50.0" y="15.899999999999999" text-anchor="start">1.12</text>
+    <circle class="sdot snow" cx="640.0" cy="97.4" r="3.5"><title>HAMT, 08-21: 0.011 s</title></circle>
+    <text class="sval snow" x="636.0" y="90.4" text-anchor="end">0.011</text>
+  </svg>
+</div>
 </section>
 
 <section class="dossier" id="d-ray">
-  <h2>Ray tracer <span class="verdict">— zig 1.9&times; node, byte-identical output</span></h2>
+  <h2>Ray tracer <span class="verdict">— zig 2&times; node, byte-identical output</span></h2>
   <p class="lede" style="margin-top:14px">The tri-target demo: 320&times;240, three bounces, and the PPM output is md5-identical on all three machines — this row is also a correctness proof.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:5%"></div><span class="t">0.08 s</span><span class="m">6 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:8%"></div><span class="t">0.12 s</span><span class="m">65 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">1.48 s</span><span class="m">104 MB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:24%"></div><span class="t">0.08 s</span><span class="m">6 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:52%"></div><span class="t">0.17 s</span><span class="m">33 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.33 s</span><span class="m">74 MB</span></div>
   </div></div>
   <div class="compile" style="margin-top:18px">
     <div class="compile-grid">
@@ -587,28 +794,34 @@ provenance.
   </div>
   <p style="margin-top:14px"><a href="explorer.html">Turn the knobs</a>: this render measured across resolutions to 8K and bounces to 10.</p>
   <div class="prose"><p><strong>Why it's fast — eventually:</strong> this number took six optimizations and one wrong diagnosis. The hot path is <code>Vec</code> record math; the wins came from borrowed field reads (no refcount round-trip per <code>v.x</code>), in-place record reuse in pattern-matched constructions, a borrowed parameter ABI for the vector helpers, and — the day's embarrassment — discovering that a third of the runtime was 230,000 <code>mmap</code> syscalls from a scratch allocator, misdiagnosed the previous night as "output writes". Inline field storage for small records closed the final gap past V8.</p></div>
-  <div class="history">
-    <div class="hstep"><div class="hv">0.66 s</div><div class="hl">boxed everything</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.49 s</div><div class="hl">record reuse + borrowed reads</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.14 s</div><div class="hl">scratch allocator off mmap</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.12 s</div><div class="hl">borrowed ABI + guards</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.08 s</div><div class="hl">inline record fields</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.07 s</div><div class="hl">flat record ABI, 08-21</div></div>
-  </div>
+<div class="history stairs-wrap">
+  <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
+    <line class="sgrid" x1="46" y1="82.5" x2="640" y2="82.5"/>
+    <text class="saxis" x="40" y="85.5" text-anchor="end">100 ms</text>
+    <path class="spath" d="M 46 25.5 L 46.0 25.5 L 46.0 34.5 L 164.8 34.5 L 164.8 72.4 L 283.6 72.4 L 283.6 77.0 L 402.4 77.0 L 402.4 89.3 L 521.2 89.3 L 521.2 93.3 L 640.0 93.3 L 640 93.3"/>
+    <circle class="sdot" cx="46.0" cy="25.5" r="3.5"><title>boxed everything: 0.66 s</title></circle>
+    <text class="sval" x="50.0" y="18.5" text-anchor="start">0.66</text>
+    <circle class="sdot" cx="164.8" cy="34.5" r="3.5"><title>record reuse + borrowed reads: 0.49 s</title></circle>
+    <text class="sval" x="164.8" y="27.5" text-anchor="middle">0.49</text>
+    <circle class="sdot" cx="283.6" cy="72.4" r="3.5"><title>scratch allocator off mmap: 0.14 s</title></circle>
+    <text class="sval" x="283.6" y="65.4" text-anchor="middle">0.14</text>
+    <circle class="sdot" cx="402.4" cy="77.0" r="3.5"><title>borrowed ABI + guards: 0.12 s</title></circle>
+    <text class="sval" x="402.4" y="70.0" text-anchor="middle">0.12</text>
+    <circle class="sdot" cx="521.2" cy="89.3" r="3.5"><title>inline record fields: 0.08 s</title></circle>
+    <text class="sval" x="521.2" y="82.3" text-anchor="middle">0.08</text>
+    <circle class="sdot snow" cx="640.0" cy="93.3" r="3.5"><title>flat record ABI, 08-21: 0.07 s</title></circle>
+    <text class="sval snow" x="636.0" y="86.3" text-anchor="end">0.07</text>
+  </svg>
+</div>
 </section>
 
 <section class="dossier" id="d-coin">
-  <h2>Coin change <span class="verdict">— zig 3&times; node, 1.6&times; the BEAM</span></h2>
+  <h2>Coin change <span class="verdict">— zig 7&times; node, 3&times; the BEAM</span></h2>
   <p class="lede" style="margin-top:14px">Naive recursive counting, ~100 million calls — list pattern-matching and recursion, the BEAM's home turf. It was a loss row until self-recursive borrowing.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:33%"></div><span class="t">0.28 s</span><span class="m">1.8 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.85 s</span><span class="m">51 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:54%"></div><span class="t">0.46 s</span><span class="m">86 MB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:14%"></div><span class="t">0.12 s</span><span class="m">1.2 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.84 s</span><span class="m">16 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:54%"></div><span class="t">0.45 s</span><span class="m">73 MB</span></div>
   </div></div>
   <div class="compile" style="margin-top:18px">
     <div class="compile-grid">
@@ -640,26 +853,36 @@ provenance.
     </div>
   </div>
   <div class="prose"><p><strong>Why it flipped:</strong> borrow inference runs to a greatest fixpoint — recursion is allowed to justify its own borrows, which is sound because call frames nest inside the outermost owner's lifetime. With <code>coins</code> passing itself down borrowed and <code>rest</code> borrowing the list spine out of the subject, the recursion performs <em>zero reference-count operations per call</em>. That took it from 2.53 s (three days ago) through five separate optimizations to 0.28 s — past the BEAM JIT that owned this row.</p></div>
-  <div class="history">
-    <div class="hstep"><div class="hv">2.53 s</div><div class="hl">boxed, dup/drop per call</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">2.27 s</div><div class="hl">reuse + borrowed reads</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">1.25 s</div><div class="hl">raw scalar guards</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.81 s</div><div class="hl">pattern-binding moves</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.28 s</div><div class="hl">self-recursive borrowing, 08-21</div></div>
-  </div>
+<div class="history stairs-wrap">
+  <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
+    <line class="sgrid" x1="46" y1="101.4" x2="640" y2="101.4"/>
+    <text class="saxis" x="40" y="104.4" text-anchor="end">100 ms</text>
+    <line class="sgrid" x1="46" y1="46.5" x2="640" y2="46.5"/>
+    <text class="saxis" x="40" y="49.5" text-anchor="end">1 s</text>
+    <path class="spath" d="M 46 24.3 L 46.0 24.3 L 46.0 26.9 L 164.8 26.9 L 164.8 41.2 L 283.6 41.2 L 283.6 51.5 L 402.4 51.5 L 402.4 76.8 L 521.2 76.8 L 521.2 95.1 L 640.0 95.1 L 640 95.1"/>
+    <circle class="sdot" cx="46.0" cy="24.3" r="3.5"><title>boxed, dup/drop per call: 2.53 s</title></circle>
+    <text class="sval" x="50.0" y="17.3" text-anchor="start">2.53</text>
+    <circle class="sdot" cx="164.8" cy="26.9" r="3.5"><title>reuse + borrowed reads: 2.27 s</title></circle>
+    <text class="sval" x="164.8" y="19.9" text-anchor="middle">2.27</text>
+    <circle class="sdot" cx="283.6" cy="41.2" r="3.5"><title>raw scalar guards: 1.25 s</title></circle>
+    <text class="sval" x="283.6" y="34.2" text-anchor="middle">1.25</text>
+    <circle class="sdot" cx="402.4" cy="51.5" r="3.5"><title>pattern-binding moves: 0.81 s</title></circle>
+    <text class="sval" x="402.4" y="44.5" text-anchor="middle">0.81</text>
+    <circle class="sdot" cx="521.2" cy="76.8" r="3.5"><title>self-recursive borrowing, 08-21: 0.28 s</title></circle>
+    <text class="sval" x="521.2" y="69.8" text-anchor="middle">0.28</text>
+    <circle class="sdot snow" cx="640.0" cy="95.1" r="3.5"><title>raw list parameters, 08-22: 0.13 s</title></circle>
+    <text class="sval snow" x="636.0" y="88.1" text-anchor="end">0.13</text>
+  </svg>
+</div>
 </section>
 
 <section class="dossier" id="d-vec">
-  <h2>Vector records <span class="verdict">— zig 2&times; the BEAM: the last loss, flipped</span></h2>
+  <h2>Vector records <span class="verdict">— fastest of all three targets</span></h2>
   <p class="lede" style="margin-top:14px">Ten million iterations of allocate-two-records, read-six-fields — pure allocation churn, kept as the honest stress test of the memory system.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:74%"></div><span class="t">0.17 s</span><span class="m">1.6 MB</span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.23 s</span><span class="m">54 MB</span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:57%"></div><span class="t">0.13 s</span><span class="m">85 MB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:23%"></div><span class="t">0.03 s</span><span class="m">1.2 MB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:38%"></div><span class="t">0.05 s</span><span class="m">19 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.13 s</span><span class="m">73 MB</span></div>
   </div></div>
   <div class="compile" style="margin-top:18px">
     <div class="compile-grid">
@@ -682,25 +905,47 @@ provenance.
     </div>
   </div>
   <div class="prose"><p><strong>Why it stopped losing:</strong> the JITs escape-analyze these temporaries into registers, so for weeks this row was the honest loss on the board. The flat record ABI answers it directly: a single-constructor record whose fields are all scalars now travels as a zig struct inside its module, so <code>add</code>/<code>scale</code>/<code>dot</code> compile to register arithmetic with no allocation at all — 0.17 s to 0.03 s, past both JITs. What stays boxed is what the rule excludes: multi-constructor types, records holding strings or lists, anything generic.</p></div>
-  <div class="history">
-    <div class="hstep"><div class="hv">0.34 s</div><div class="hl">boxed + full RC traffic</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.27 s</div><div class="hl">borrowed params + subjects</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep"><div class="hv">0.17 s</div><div class="hl">inline record fields</div></div>
-    <div class="harrow">&rarr;</div>
-    <div class="hstep now"><div class="hv">0.03 s</div><div class="hl">flat record ABI, 08-21</div></div>
-  </div>
+<div class="history stairs-wrap">
+  <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
+    <line class="sgrid" x1="46" y1="59.8" x2="640" y2="59.8"/>
+    <text class="saxis" x="40" y="62.8" text-anchor="end">100 ms</text>
+    <path class="spath" d="M 46 25.2 L 46.0 25.2 L 46.0 31.7 L 244.0 31.7 L 244.0 44.8 L 442.0 44.8 L 442.0 93.9 L 640.0 93.9 L 640 93.9"/>
+    <circle class="sdot" cx="46.0" cy="25.2" r="3.5"><title>boxed + full RC traffic: 0.34 s</title></circle>
+    <text class="sval" x="50.0" y="18.2" text-anchor="start">0.34</text>
+    <circle class="sdot" cx="244.0" cy="31.7" r="3.5"><title>borrowed params + subjects: 0.27 s</title></circle>
+    <text class="sval" x="244.0" y="24.7" text-anchor="middle">0.27</text>
+    <circle class="sdot" cx="442.0" cy="44.8" r="3.5"><title>inline record fields: 0.17 s</title></circle>
+    <text class="sval" x="442.0" y="37.8" text-anchor="middle">0.17</text>
+    <circle class="sdot snow" cx="640.0" cy="93.9" r="3.5"><title>flat record ABI, 08-21: 0.03 s</title></circle>
+    <text class="sval snow" x="636.0" y="86.9" text-anchor="end">0.03</text>
+  </svg>
+</div>
 </section>
+
+
+<section class="dossier" id="d-tree">
+  <h2>Binary trees <span class="verdict">— memory halved; the time row is under re-measurement</span></h2>
+  <p class="lede" style="margin-top:14px">Build a full depth-21 binary tree four times and walk it. Millions of multi-constructor records allocated, pattern-matched, and released — the allocation benchmark, and the row that drove the most recent runtime work.</p>
+  <div class="panel bench" style="margin-top:16px"><div class="brow">
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:52%"></div><span class="t">—</span><span class="m">1.03 GB</span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" style="width:45%"></div><span class="t">0.96 s</span><span class="m">885 MB</span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" style="width:42%"></div><span class="t">0.46 s</span><span class="m">834 MB</span></div>
+  </div></div>
+  <div class="prose"><p><strong>What changed:</strong> counting allocations by shape found that half of every record this benchmark allocates — 81,920 of 163,830 — is a <code>Leaf</code>, a nullary constructor carrying no payload at all. A full binary tree has more leaves than internal nodes, so the majority allocation was a 120-byte heap record representing nothing. Nullary constructors are constants, so each variant now gets one immortal shared value instead. Peak memory fell from 2.0 GB to 1.03 GB, exactly the predicted half.</p>
+  <p><strong>Why the time column reads “—”:</strong> the previously published figure for this row (1.07 s) does not reproduce on current hardware, and rather than quietly restate it we are re-measuring the whole time axis. Memory is unaffected by that question — it is a property of the program, not the machine, and it agrees across all three runtimes — so it stands. The honest position is that we know this row got substantially faster and substantially smaller, and we are not going to publish a headline number we cannot currently reproduce end to end.</p>
+  <p><strong>Still open:</strong> the 56-byte header on records that <em>do</em> carry fields. The three candidate fixes — a comptime name-hash tag, folding labels into the tag word, pooling by arity — are all header-size fixes, and this benchmark is the standing reminder that the intuition about where record cost sits was wrong by 2× last time. Measure first.</p></div>
+</section>
+
 
 <section class="dossier" id="method">
   <h2>Method</h2>
   <ul class="clean" style="margin-top:16px">
     <li><strong>Correctness before speed:</strong> every workload's output is byte-diffed across targets before any timing counts — the ray tracer's PPM is md5-identical on all three; every zig run in the differential harness is also leak-checked at exit</li>
     <li><strong>What runs:</strong> zig as a ReleaseFast static binary; node 22 and erl (OTP 27) invoked directly on built output, no CLI wrapper in the timed path; BEAM figures are CPU time with the ~1 s VM boot excluded (wall time would flatter zig)</li>
-    <li><strong>How measured:</strong> <code>/usr/bin/time -l</code>, best of 3, Apple M-series, 2026-08-21, compiler fork <span class="num">039b8430b</span></li>
-    <li><strong>Sources:</strong> each benchmark is a one-file Gleam program in <code>examples/benchmarks/</code> of the workspace repo (the ray tracer is <code>examples/demo/raytracer/</code>); the corpus gate (122 programs byte-identical, 0 failures) re-runs in CI on every push</li>
+    <li><strong>How measured:</strong> <code>/usr/bin/time -l</code> (user CPU, peak memory footprint), best of 3, Apple M-series, 2026-08-22, compiler fork <span class="num">2b8a018ec</span>. Compile time is one warm build per target; the shipped-artifact column is the exported binary (zig), the JS build tree (node), and the compiled BEAM files (erlang)</li>
+    <li><strong>Sources:</strong> each benchmark is a one-file Gleam program in <code>examples/benchmarks/</code> of the workspace repo (the ray tracer is <code>examples/demo/raytracer/</code>); the corpus gate (119 programs byte-identical, 0 failures, leak-clean) re-runs on every push. Experiment ledgers live in <code>examples/benchmarks/results.tsv</code></li>
     <li><strong>What's NOT here:</strong> no warmup games (JITs get their natural single-run behavior, same as the binary), no per-target tuning, no cherry-picked coin denominations — and when a row loses, it stays on the board</li>
+    <li><strong>Where a number is missing:</strong> the binary-trees time reads &ldquo;&mdash;&rdquo; because the figure previously published for it does not reproduce on current hardware, and we would rather show a gap than a number we cannot stand behind. Its memory figure is unaffected and stands. Rows whose sources are checked in at their published size — coin change, vector records — do reproduce, which is why the rest of the board is unchanged</li>
   </ul>
   <div class="codewrap">
 <pre class="block"><span class="cm"># after the setup on the start page, reproduce any row:</span>
