@@ -306,7 +306,7 @@
   /* at-a-glance compact chart */
   .glance-wrap { margin-top: 20px; }
   .glance { font-family: var(--font-mono); font-size: 11px; }
-  .g-head, .g-row { display: grid; grid-template-columns: 148px repeat(4, minmax(0, 1fr)); gap: 0 16px; align-items: center; }
+  .g-head, .g-row { display: grid; grid-template-columns: 148px repeat(3, minmax(0, 1fr)); gap: 0 16px; align-items: center; }
   .g-head { padding: 4px 0 8px; border-bottom: 1px solid var(--seam); }
   .g-head span { text-transform: uppercase; letter-spacing: 0.09em; font-size: 10px; color: var(--faint); font-weight: 600; }
   .g-row { padding: 9px 0; border-bottom: 1px solid var(--seam-soft); }
@@ -324,9 +324,10 @@
   .g-note { margin-top: 12px; font-size: 11px; color: var(--faint); line-height: 1.55; max-width: none; }
   .g-note code { font-family: var(--font-mono); color: var(--dim); }
   @media (max-width: 700px) {
-    .g-head, .g-row { grid-template-columns: 110px repeat(2, minmax(0, 1fr)); }
-    .g-head span:nth-child(n+4), .g-cell:nth-child(n+4) { display: none; }
-    .g-head span:nth-child(3) { grid-column: 3; }
+    /* Three data columns fit at this width once compile is gone; the
+       artifact column is the point of the table, so it is not the one
+       that gets dropped. */
+    .g-head, .g-row { grid-template-columns: 96px repeat(3, minmax(0, 1fr)); gap: 0 8px; }
   }
 
   /* runtime layers */
@@ -562,10 +563,10 @@ provenance.
   </div>
 
 <div class="panel glance-wrap">
-  <div class="panel-head">at a glance: six workloads &times; four costs<span class="plate">user CPU &middot; peak memory footprint &middot; warm compile &middot; shipped artifact; each bar scales to the worst target in its cell</span></div>
+  <div class="panel-head">at a glance: six workloads &times; three costs<span class="plate">user CPU &middot; peak memory footprint &middot; shipped artifact; each bar scales to the worst target in its cell</span></div>
   <div style="padding:8px 16px 14px">
     <div class="glance">
-      <div class="g-head"><span></span><span>cpu</span><span>memory</span><span>compile</span><span>artifact</span></div>
+      <div class="g-head"><span></span><span>cpu</span><span>memory</span><span>artifact</span></div>
       <div class="g-row">
         <div class="g-name">string building<span class="g-sub">200k-piece fold</span></div>
         <div class="g-cell">
@@ -579,13 +580,8 @@ provenance.
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>123 MB</b></div>
         </div>
         <div class="g-cell">
-          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>3.9 s</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:3%"></i><b>0.10 s</b></div>
-          <div class="gl"><span class="g-lab">erl</span><i style="width:7%"></i><b>0.27 s</b></div>
-        </div>
-        <div class="g-cell">
           <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:27%"></i><b>372 K</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:62%"></i><b>848 K</b></div>
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1376 K</b></div>
         </div>
       </div>
@@ -602,18 +598,13 @@ provenance.
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>87 MB</b></div>
         </div>
         <div class="g-cell">
-          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>4.2 s</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.09 s</b></div>
-          <div class="gl"><span class="g-lab">erl</span><i style="width:5%"></i><b>0.22 s</b></div>
-        </div>
-        <div class="g-cell">
           <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:28%"></i><b>389 K</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:61%"></i><b>848 K</b></div>
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1380 K</b></div>
         </div>
       </div>
       <div class="g-row">
-        <div class="g-name">ray tracer<span class="g-sub">640x480, 5 bounces</span></div>
+        <div class="g-name">ray tracer<span class="g-sub">320x240, depth 3</span></div>
         <div class="g-cell">
           <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:24%"></i><b>0.08</b></div>
           <div class="gl"><span class="g-lab">node</span><i style="width:52%"></i><b>0.17</b></div>
@@ -625,13 +616,8 @@ provenance.
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>74 MB</b></div>
         </div>
         <div class="g-cell">
-          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>4.3 s</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.10 s</b></div>
-          <div class="gl"><span class="g-lab">erl</span><i style="width:6%"></i><b>0.25 s</b></div>
-        </div>
-        <div class="g-cell">
           <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:33%"></i><b>389 K</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>28 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:71%"></i><b>848 K</b></div>
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1192 K</b></div>
         </div>
       </div>
@@ -648,13 +634,8 @@ provenance.
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>73 MB</b></div>
         </div>
         <div class="g-cell">
-          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>3.9 s</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.09 s</b></div>
-          <div class="gl"><span class="g-lab">erl</span><i style="width:6%"></i><b>0.22 s</b></div>
-        </div>
-        <div class="g-cell">
           <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:27%"></i><b>371 K</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:61%"></i><b>848 K</b></div>
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1380 K</b></div>
         </div>
       </div>
@@ -671,13 +652,8 @@ provenance.
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>73 MB</b></div>
         </div>
         <div class="g-cell">
-          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>3.9 s</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.09 s</b></div>
-          <div class="gl"><span class="g-lab">erl</span><i style="width:6%"></i><b>0.22 s</b></div>
-        </div>
-        <div class="g-cell">
           <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:27%"></i><b>371 K</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:61%"></i><b>848 K</b></div>
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1380 K</b></div>
         </div>
       </div>
@@ -694,25 +670,20 @@ provenance.
           <div class="gl"><span class="g-lab">erl</span><i style="width:42%"></i><b>834 MB</b></div>
         </div>
         <div class="g-cell">
-          <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:100%"></i><b>3.9 s</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>0.09 s</b></div>
-          <div class="gl"><span class="g-lab">erl</span><i style="width:6%"></i><b>0.22 s</b></div>
-        </div>
-        <div class="g-cell">
           <div class="gl gl zig"><span class="g-lab">zig</span><i style="width:27%"></i><b>371 K</b></div>
-          <div class="gl"><span class="g-lab">node</span><i style="width:2%"></i><b>24 K</b></div>
+          <div class="gl"><span class="g-lab">node</span><i style="width:61%"></i><b>848 K</b></div>
           <div class="gl"><span class="g-lab">erl</span><i style="width:100%"></i><b>1380 K</b></div>
         </div>
       </div>
     </div>
-    <p class="g-note">compile = one warm <code>gleam export zig-executable</code> / <code>gleam build --target &hellip;</code>; artifact = the exported binary (zig), the JS build tree (node), the compiled BEAM files (erlang). Faster compiles exist: <code>--optimize debug</code> halves the zig number. Full dossiers below.</p>
+    <p class="g-note">artifact = everything that must ship for the program to run: the exported binary (zig), the JS build tree including gleam_stdlib and the prelude (node), the compiled BEAM files (erlang). None of them count a runtime the machine must already have. Full dossiers below.</p>
   </div>
 </div>
 
 
   <div class="ship" role="group" aria-label="Deploy artifact comparison">
     <div><div class="w a">zig ships ~380 KB</div><div class="d">one static binary, no runtime installed, cross-compiled with <code>--target-triple</code></div></div>
-    <div><div class="w">node ships a build tree</div><div class="d">plus a ~65 MB node runtime the machine must already have</div></div>
+    <div><div class="w">node ships ~848 KB</div><div class="d">the emitted module is 20 KB of it; the rest is gleam_stdlib and the prelude, without which it will not run &mdash; plus a ~65 MB node runtime the machine must already have</div></div>
     <div><div class="w">erlang ships a release</div><div class="d">plus an OTP install; ~1 s VM boot before the first line runs</div></div>
   </div>
 
@@ -986,7 +957,7 @@ provenance.
   <ul class="clean" style="margin-top:16px">
     <li><strong>Correctness before speed:</strong> every workload's output is byte-diffed across targets before any timing counts — the ray tracer's PPM is md5-identical on all three; every zig run in the differential harness is also leak-checked at exit</li>
     <li><strong>What runs:</strong> zig as a ReleaseFast static binary; node 22 and erl (OTP 27) invoked directly on built output, no CLI wrapper in the timed path; BEAM figures are CPU time with the ~1 s VM boot excluded (wall time would flatter zig)</li>
-    <li><strong>How measured:</strong> <code>/usr/bin/time -l</code> (user CPU, peak memory footprint), best of 3, Apple M-series, 2026-08-22, compiler fork <span class="num">2b8a018ec</span>. Compile time is one warm build per target; the shipped-artifact column is the exported binary (zig), the JS build tree (node), and the compiled BEAM files (erlang)</li>
+    <li><strong>How measured:</strong> <code>/usr/bin/time -l</code> (user CPU, peak memory footprint), best of 3, Apple M-series, compiler fork <span class="num">ff1fd2bcd</span>. The shipped-artifact column is the exported binary (zig), the whole JS build tree (node) and the compiled BEAM files (erlang) — for node that includes gleam_stdlib and the prelude, without which the emitted module will not run</li>
     <li><strong>Sources:</strong> each benchmark is a one-file Gleam program in <code>examples/benchmarks/</code> of the workspace repo (the ray tracer is <code>examples/demo/raytracer/</code>); the corpus gate (119 programs byte-identical, 0 failures, leak-clean) re-runs on every push. Experiment ledgers live in <code>examples/benchmarks/results.tsv</code></li>
     <li><strong>What's NOT here:</strong> no warmup games (JITs get their natural single-run behavior, same as the binary), no per-target tuning, no cherry-picked coin denominations — and when a row loses, it stays on the board</li>
     <li><strong>When a number stops reproducing:</strong> it gets treated as a bug until proven otherwise. The binary-trees and ray-tracer rows drifted ~40&times; and ~100&times; from their published figures; the cause was a real allocation-path regression, not a bad measurement, and both rows returned to their published values once it was fixed. A figure on this page that cannot be reproduced by the command next to it is a defect report</li>
