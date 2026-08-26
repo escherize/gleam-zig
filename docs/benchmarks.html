@@ -387,6 +387,29 @@
   .scatter .dot-label { font-family: var(--font-mono); font-size: 9.5px; fill: var(--dim); }
   .scatter .dot-label.zig { fill: var(--amber); }
   .scatter .corner { font-family: var(--font-mono); font-size: 10.5px; fill: var(--faint); font-style: italic; }
+  .scatter [data-bench] { cursor: pointer; }
+  .scatter [data-bench]:hover, .scatter [data-bench].is-active { stroke: var(--text); stroke-width: 1.5; }
+  .scatter [data-bench]:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .scatter-wrap { position: relative; }
+  .dot-tip {
+    position: absolute; z-index: 5; pointer-events: none;
+    min-width: 190px; max-width: 250px; padding: 9px 11px;
+    background: var(--elevated); border: 1px solid var(--seam); border-radius: 6px;
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: var(--dim);
+    opacity: 0; transform: translateY(2px); transition: opacity .09s ease, transform .09s ease;
+  }
+  .dot-tip { visibility: hidden; }
+  .dot-tip.is-shown { visibility: visible; }
+  .dot-tip.is-shown { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) { .dot-tip { transition: none; } }
+  .dot-tip .tt-name { color: var(--text); font-weight: 600; font-family: var(--font-body); font-size: 12.5px; }
+  .dot-tip .tt-blurb { color: var(--faint); margin-top: 1px; }
+  .dot-tip .tt-target { margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--seam-soft); }
+  .dot-tip.for-zig .tt-target { color: var(--amber); }
+  .dot-tip dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 5px 0 0; }
+  .dot-tip dt { color: var(--faint); }
+  .dot-tip dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
+  .dot-tip .tt-note { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--seam-soft); color: var(--faint); font-style: italic; }
   .legend { display: flex; gap: 18px; margin-top: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--dim); flex-wrap: wrap; }
   .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 
@@ -501,13 +524,14 @@ provenance.
       <text class="axis-label" x="18" y="151">100 MB</text>
       <text class="axis-label" x="14" y="59.5">1 GB</text>
       <text class="corner" x="150" y="322">&#8601; fast and small</text>
-      <circle class="dot-erl" cx="308.2" cy="139.3" r="5"><title>string &middot; erl &middot; 0.11 s / 123 MB</title></circle><circle class="dot-erl" cx="308.2" cy="153.0" r="5"><title>dict &middot; erl &middot; 0.11 s / 87 MB</title></circle><circle class="dot-erl" cx="421.9" cy="159.5" r="5"><title>ray &middot; erl &middot; 0.33 s / 74 MB</title></circle><circle class="dot-erl" cx="454.0" cy="160.0" r="5"><title>coin &middot; erl &middot; 0.45 s / 73 MB</title></circle><circle class="dot-erl" cx="325.5" cy="160.0" r="5"><title>vec &middot; erl &middot; 0.13 s / 73 MB</title></circle><circle class="dot-erl" cx="456.2" cy="63.2" r="5"><title>tree &middot; erl &middot; 0.46 s / 834 MB</title></circle>
-      <circle class="dot-node" cx="404.9" cy="152.6" r="5"><title>string &middot; node &middot; 0.28 s / 88 MB</title></circle><circle class="dot-node" cx="261.4" cy="180.1" r="5"><title>dict &middot; node &middot; 0.07 s / 44 MB</title></circle><circle class="dot-node" cx="353.2" cy="191.6" r="5"><title>ray &middot; node &middot; 0.17 s / 33 MB</title></circle><circle class="dot-node" cx="517.3" cy="220.3" r="5"><title>coin &middot; node &middot; 0.83 s / 16 MB</title></circle><circle class="dot-node" cx="226.6" cy="213.5" r="5"><title>vec &middot; node &middot; 0.05 s / 19 MB</title></circle><circle class="dot-node" cx="532.4" cy="60.9" r="5"><title>tree &middot; node &middot; 0.96 s / 885 MB</title></circle>
-      <circle class="dot-zig" cx="62.0" cy="194.0" r="5.5"><title>string &middot; zig &middot; 0.01 s / 31 MB</title></circle><circle class="dot-zig" cx="62.0" cy="253.2" r="5.5"><title>dict &middot; zig &middot; 0.01 s / 7 MB</title></circle><circle class="dot-zig" cx="275.2" cy="261.3" r="5.5"><title>ray &middot; zig &middot; 0.08 s / 5.7 MB</title></circle><circle class="dot-zig" cx="317.2" cy="323.3" r="5.5"><title>coin &middot; zig &middot; 0.12 s / 1.2 MB</title></circle><circle class="dot-zig" cx="173.7" cy="323.3" r="5.5"><title>vec &middot; zig &middot; 0.03 s / 1.2 MB</title></circle><circle class="dot-zig" cx="543.6" cy="55.0" r="5.5" opacity="0.55" stroke-dasharray="3 2"><title>tree &middot; zig &middot; 1.03 GB &middot; time under re-measurement, horizontal position provisional</title></circle>
+      <circle class="dot-erl" cx="308.2" cy="139.3" r="5" tabindex="0" role="button" data-bench="String building" data-blurb="fold 200k integer pieces into one string" data-target="erlang / OTP 27" data-time="0.11 s" data-mem="123 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>String building &middot; erlang / OTP 27 &middot; 0.11 s / 123 MB</title></circle><circle class="dot-erl" cx="308.2" cy="153.0" r="5" tabindex="0" role="button" data-bench="Dictionary" data-blurb="10k keys, insert then look up every one" data-target="erlang / OTP 27" data-time="0.11 s" data-mem="87 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Dictionary &middot; erlang / OTP 27 &middot; 0.11 s / 87 MB</title></circle><circle class="dot-erl" cx="421.9" cy="159.5" r="5" tabindex="0" role="button" data-bench="Ray tracer" data-blurb="320x240 scene, reflections to depth 3" data-target="erlang / OTP 27" data-time="0.33 s" data-mem="74 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Ray tracer &middot; erlang / OTP 27 &middot; 0.33 s / 74 MB</title></circle><circle class="dot-erl" cx="454.0" cy="160.0" r="5" tabindex="0" role="button" data-bench="Coin change" data-blurb="count ways to make 900 from 6 denominations" data-target="erlang / OTP 27" data-time="0.45 s" data-mem="73 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Coin change &middot; erlang / OTP 27 &middot; 0.45 s / 73 MB</title></circle><circle class="dot-erl" cx="325.5" cy="160.0" r="5" tabindex="0" role="button" data-bench="Vector records" data-blurb="10M iterations of 3D vector arithmetic" data-target="erlang / OTP 27" data-time="0.13 s" data-mem="73 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Vector records &middot; erlang / OTP 27 &middot; 0.13 s / 73 MB</title></circle><circle class="dot-erl" cx="456.2" cy="63.2" r="5" tabindex="0" role="button" data-bench="Binary trees" data-blurb="build a depth-21 tree 4x and walk it" data-target="erlang / OTP 27" data-time="0.46 s" data-mem="834 MB" data-art="release + OTP install" data-note="CPU time, ~1 s VM boot excluded"><title>Binary trees &middot; erlang / OTP 27 &middot; 0.46 s / 834 MB</title></circle>
+      <circle class="dot-node" cx="404.9" cy="152.6" r="5" tabindex="0" role="button" data-bench="String building" data-blurb="fold 200k integer pieces into one string" data-target="node 22" data-time="0.28 s" data-mem="88 MB" data-art="build tree + ~65 MB runtime"><title>String building &middot; node 22 &middot; 0.28 s / 88 MB</title></circle><circle class="dot-node" cx="261.4" cy="180.1" r="5" tabindex="0" role="button" data-bench="Dictionary" data-blurb="10k keys, insert then look up every one" data-target="node 22" data-time="0.07 s" data-mem="44 MB" data-art="build tree + ~65 MB runtime"><title>Dictionary &middot; node 22 &middot; 0.07 s / 44 MB</title></circle><circle class="dot-node" cx="353.2" cy="191.6" r="5" tabindex="0" role="button" data-bench="Ray tracer" data-blurb="320x240 scene, reflections to depth 3" data-target="node 22" data-time="0.17 s" data-mem="33 MB" data-art="build tree + ~65 MB runtime"><title>Ray tracer &middot; node 22 &middot; 0.17 s / 33 MB</title></circle><circle class="dot-node" cx="517.3" cy="220.3" r="5" tabindex="0" role="button" data-bench="Coin change" data-blurb="count ways to make 900 from 6 denominations" data-target="node 22" data-time="0.83 s" data-mem="16 MB" data-art="build tree + ~65 MB runtime"><title>Coin change &middot; node 22 &middot; 0.83 s / 16 MB</title></circle><circle class="dot-node" cx="226.6" cy="213.5" r="5" tabindex="0" role="button" data-bench="Vector records" data-blurb="10M iterations of 3D vector arithmetic" data-target="node 22" data-time="0.05 s" data-mem="19 MB" data-art="build tree + ~65 MB runtime"><title>Vector records &middot; node 22 &middot; 0.05 s / 19 MB</title></circle><circle class="dot-node" cx="532.4" cy="60.9" r="5" tabindex="0" role="button" data-bench="Binary trees" data-blurb="build a depth-21 tree 4x and walk it" data-target="node 22" data-time="0.96 s" data-mem="885 MB" data-art="build tree + ~65 MB runtime"><title>Binary trees &middot; node 22 &middot; 0.96 s / 885 MB</title></circle>
+      <circle class="dot-zig" cx="62.0" cy="194.0" r="5.5" tabindex="0" role="button" data-bench="String building" data-blurb="fold 200k integer pieces into one string" data-target="zig &middot; static binary" data-time="0.01 s" data-mem="31 MB" data-art="393 KB"><title>String building &middot; zig &middot; static binary &middot; 0.01 s / 31 MB</title></circle><circle class="dot-zig" cx="62.0" cy="253.2" r="5.5" tabindex="0" role="button" data-bench="Dictionary" data-blurb="10k keys, insert then look up every one" data-target="zig &middot; static binary" data-time="0.01 s" data-mem="7 MB" data-art="412 KB"><title>Dictionary &middot; zig &middot; static binary &middot; 0.01 s / 7 MB</title></circle><circle class="dot-zig" cx="275.2" cy="261.3" r="5.5" tabindex="0" role="button" data-bench="Ray tracer" data-blurb="320x240 scene, reflections to depth 3" data-target="zig &middot; static binary" data-time="0.08 s" data-mem="5.7 MB" data-art="411 KB"><title>Ray tracer &middot; zig &middot; static binary &middot; 0.08 s / 5.7 MB</title></circle><circle class="dot-zig" cx="317.2" cy="323.3" r="5.5" tabindex="0" role="button" data-bench="Coin change" data-blurb="count ways to make 900 from 6 denominations" data-target="zig &middot; static binary" data-time="0.12 s" data-mem="1.2 MB" data-art="392 KB"><title>Coin change &middot; zig &middot; static binary &middot; 0.12 s / 1.2 MB</title></circle><circle class="dot-zig" cx="173.7" cy="323.3" r="5.5" tabindex="0" role="button" data-bench="Vector records" data-blurb="10M iterations of 3D vector arithmetic" data-target="zig &middot; static binary" data-time="0.03 s" data-mem="1.2 MB" data-art="392 KB"><title>Vector records &middot; zig &middot; static binary &middot; 0.03 s / 1.2 MB</title></circle><circle class="dot-zig" cx="543.6" cy="55.0" r="5.5" opacity="0.55" stroke-dasharray="3 2" tabindex="0" role="button" data-bench="Binary trees" data-blurb="build a depth-21 tree 4x and walk it" data-target="zig &middot; static binary" data-time="&mdash;" data-mem="1.03 GB" data-art="393 KB" data-note="time under re-measurement; horizontal position provisional"><title>Binary trees &middot; zig &middot; static binary &middot; &mdash; / 1.03 GB</title></circle>
       <text class="dot-label zig" x="98" y="290">zig</text>
       <text class="dot-label" x="444.6" y="128.8">node</text>
       <text class="dot-label" x="553.2" y="135.5">erlang</text>
     </svg>
+    <div class="dot-tip" id="dot-tip" role="status" aria-live="polite"></div>
     </div>
   </div>
   <div class="legend">
@@ -1002,6 +1026,73 @@ python3 examples/harness.py examples/benchmarks/coin_change.gleam</pre>
     });
   }, { rootMargin: '-30% 0px -60% 0px' });
   document.querySelectorAll('.dossier[id]').forEach(s => obs.observe(s));
+
+  // Scatter-plot tooltips. The native SVG <title> stays in the markup as the
+  // no-JS and screen-reader fallback; this replaces the browser's slow,
+  // unstyled tooltip with one that shows the whole run.
+  const tip = document.getElementById('dot-tip');
+  const wrap = tip && tip.closest('.scatter-wrap');
+  if (tip && wrap) {
+    let active = null;
+
+    const show = (dot) => {
+      const d = dot.dataset;
+      const artLabel = dot.classList.contains('dot-zig') ? 'binary' : 'ships';
+      tip.className = 'dot-tip' + (dot.classList.contains('dot-zig') ? ' for-zig' : '');
+      tip.innerHTML =
+        '<div class="tt-name"></div><div class="tt-blurb"></div>' +
+        '<div class="tt-target"></div>' +
+        '<dl><dt>time</dt><dd class="tt-time"></dd>' +
+        '<dt>memory</dt><dd class="tt-mem"></dd>' +
+        '<dt>' + artLabel + '</dt><dd class="tt-art"></dd></dl>' +
+        (d.note ? '<div class="tt-note"></div>' : '');
+      tip.querySelector('.tt-name').textContent = d.bench;
+      tip.querySelector('.tt-blurb').textContent = d.blurb;
+      // innerHTML for target only: it carries an intentional &middot; entity.
+      tip.querySelector('.tt-target').innerHTML = d.target;
+      tip.querySelector('.tt-time').innerHTML = d.time;
+      tip.querySelector('.tt-mem').textContent = d.mem;
+      tip.querySelector('.tt-art').textContent = d.art;
+      if (d.note) tip.querySelector('.tt-note').textContent = d.note;
+
+      // Position from the dot's on-screen box, then clamp inside the panel so
+      // edge dots never overflow. Measured after unhiding so sizes are real.
+      const wr = wrap.getBoundingClientRect();
+      const dr = dot.getBoundingClientRect();
+      const tr = tip.getBoundingClientRect();
+      let left = dr.left - wr.left + dr.width / 2 - tr.width / 2;
+      left = Math.max(6, Math.min(left, wr.width - tr.width - 6));
+      let top = dr.top - wr.top - tr.height - 10;
+      if (top < 6) top = dr.bottom - wr.top + 10;   // flip below when tight
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+      requestAnimationFrame(() => tip.classList.add('is-shown'));
+
+      if (active && active !== dot) active.classList.remove('is-active');
+      active = dot;
+      dot.classList.add('is-active');
+    };
+
+    const hide = () => {
+      tip.classList.remove('is-shown');
+      if (active) { active.classList.remove('is-active'); active = null; }
+    };
+
+    document.querySelectorAll('.scatter [data-bench]').forEach(dot => {
+      dot.addEventListener('mouseenter', () => show(dot));
+      dot.addEventListener('mouseleave', hide);
+      dot.addEventListener('focus', () => show(dot));
+      dot.addEventListener('blur', hide);
+      // Touch: tap toggles, and the tap must not immediately re-hide.
+      dot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        active === dot ? hide() : show(dot);
+      });
+    });
+    document.addEventListener('click', hide);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(); });
+    window.addEventListener('scroll', () => { if (active) hide(); }, { passive: true });
+  }
 </script>
 
 </body>
