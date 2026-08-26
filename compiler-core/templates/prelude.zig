@@ -142,9 +142,11 @@ pub const Closure = struct {
 // vector operation). Freed records, cons cells and small slices park in
 // threadlocal free lists for immediate reuse. Compiled out when leak
 // checking is on, keeping exact alloc/free pairing there.
-/// Object pooling is disabled by default: a latent aliasing bug in the
-/// record free-list corrupts live values under release-mode layouts
-/// (see .notes/07-status.md). Set GLEAM_ZIG_POOL=1 to opt in.
+/// Object pooling is opt-in via GLEAM_ZIG_POOL=1. It was disabled for the
+/// record free-list corruption tracked as #16; that bug is fixed (the next
+/// pointer no longer hides in a slice field, see poolPushRecord), and the
+/// corpus now passes with pooling on. Kept opt-in until the default flip
+/// is measured on its own.
 fn pooling() bool {
     if (leak_checking()) return false;
     switch (builtin.os.tag) {
@@ -187,18 +189,15 @@ fn poolPushString(base: [*]u64, words: usize) bool {
 fn poolPopRecord() ?*Record {
     if (!pooling()) return null;
     const head = record_pool orelse return null;
-    // The next pointer hides in the retired struct's name field.
-    record_pool = @ptrFromInt(@intFromPtr(head.name.ptr));
-    if (head.name.len == 0) record_pool = null;
+    // The next pointer hides in the retired struct's rc field, which is
+    // meaningless once the record is dead. 0 terminates the list.
+    record_pool = if (head.rc == 0) null else @ptrFromInt(head.rc);
     return head;
 }
 
 fn poolPushRecord(record: *Record) bool {
     if (!pooling()) return false;
-    record.name = if (record_pool) |next|
-        @as([*]const u8, @ptrCast(next))[0..1]
-    else
-        &.{};
+    record.rc = if (record_pool) |next| @intFromPtr(next) else 0;
     record_pool = record;
     return true;
 }
