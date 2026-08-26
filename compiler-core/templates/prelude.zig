@@ -30,6 +30,16 @@ const builtin = @import("builtin");
 /// (e.g. Windows) cannot see the variable; there the gate simply
 /// stays off unless the build is Debug.
 fn leak_checking() bool {
+    // Resolved once. This is on the allocation path via rc_allocator(), and
+    // scanning the environment per call cost more than the allocation did.
+    if (leak_cache) |v| return v;
+    const v = resolveLeakChecking();
+    leak_cache = v;
+    return v;
+}
+var leak_cache: ?bool = null;
+
+fn resolveLeakChecking() bool {
     if (builtin.mode == .Debug) return true;
     switch (builtin.os.tag) {
         .windows, .wasi, .emscripten => return false,
@@ -153,6 +163,17 @@ pub const Closure = struct {
 /// exercises the UNPOOLED path, which is how #16 survived every corpus
 /// run - pooled coverage needs HARNESS_LEAK_GATE=0.
 fn pooling() bool {
+    // Resolved once, for the same reason as leak_checking: every pool push
+    // and pop consults this, so a per-call environment scan dominated the
+    // record allocation path.
+    if (pool_cache) |v| return v;
+    const v = resolvePooling();
+    pool_cache = v;
+    return v;
+}
+var pool_cache: ?bool = null;
+
+fn resolvePooling() bool {
     if (leak_checking()) return false;
     switch (builtin.os.tag) {
         .windows, .wasi, .emscripten => return false,
