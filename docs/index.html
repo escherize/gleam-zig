@@ -389,8 +389,8 @@
     </div>
     <div class="statusbar" role="group" aria-label="Verification receipts">
       <div class="rail-head">run of record · 2026-08-27</div>
-      <div class="stat"><div class="n">119<span class="u">/119</span></div><div class="l">corpus programs match the official compiler byte-for-byte, 0 failures, 30 classified skips</div></div>
-      <div class="stat"><div class="n">0<span class="u">leaks</span></div><div class="l">every corpus binary leak-checks itself at exit; one live allocation fails the run</div></div>
+      <div class="stat"><div class="n">119<span class="u">/119</span></div><div class="l">corpus programs match the official compiler, 0 failures, 30 classified skips; byte-for-byte except where output order is unspecified</div></div>
+      <div class="stat"><div class="n">0<span class="u">leaks</span></div><div class="l">every corpus binary leak-checks itself at exit; one live allocation fails the run. The gate turns object pooling off, so these runs prove the unpooled allocator</div></div>
       <div class="stat"><div class="n">411<span class="u">KB</span></div><div class="l">static ray-tracer binary; it renders the same image, pixel for pixel, as the erlang and javascript builds</div></div>
       <div class="stat"><div class="n">28<span class="u">&times; node</span></div><div class="l">string-building benchmark (200k-piece fold): 0.01 s vs node's 0.28 s, <a href="#bench">all benchmarks</a></div></div>
     </div>
@@ -628,7 +628,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 
   <section id="verify">
     <h2 class="ruled">Every number on this page has an oracle</h2>
-    <p class="lede">The method: run every test program twice, once with the <strong>official Gleam compiler</strong> (the JavaScript target, on node), once compiled to a native binary by this fork, and diff the normalised stdout. Pass means byte-identical; deliberate crashes must match too.</p>
+    <p class="lede">The method: run every test program twice, once with the <strong>official Gleam compiler</strong> (the JavaScript target, on node), once compiled to a native binary by this fork, and diff the normalised stdout. Pass means byte-identical, and deliberate crashes must match too. The exception is programs whose output has no defined order, the ones using <code>gleam/dict</code>, <code>gleam/set</code>, or randomness: hash iteration order is unspecified per target, so those are held to a clean exit instead of a byte diff.</p>
     <div class="pipeline" role="img" aria-label="Verification pipeline: one Gleam program runs through the official compiler and through this fork; outputs are diffed and the native binary is leak-checked">
       <div class="pnode pnode--src"><div class="t">program.gleam</div><div class="s">one source</div></div>
       <div class="plink"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -641,9 +641,9 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
     <h3>The corpora</h3>
     <ul class="clean">
       <li><strong class="num">60</strong> Rosetta Code tasks and <strong class="num">59</strong> language-tour lessons pass byte-identical, <strong class="num">119 / 119</strong> runnable programs, 0 failures</li>
-      <li><strong class="num">27</strong> skips, every one classified: 15 compile on neither target, 9 need missing hex packages, 2 need externals the target lacks, 1 hits the i64-vs-bignum divergence, skips are named, never hidden in a pass rate</li>
+      <li><strong class="num">30</strong> skips, every one classified: 15 compile on neither target, 9 need missing hex packages, 3 run forever by design so there is nothing to diff, 2 need externals the target lacks, 1 hits the i64-vs-bignum divergence, skips are named, never hidden in a pass rate</li>
       <li><strong>Leak gate:</strong> debug binaries count every allocation and <strong>exit 2 if anything is still live</strong> after main returns, the whole corpus runs under it</li>
-      <li><strong>CI:</strong> the <code>zig-target</code> workflow re-runs the corpus + leak gate on every push and pull request</li>
+      <li><strong>CI:</strong> the <code>zig-target</code> workflow re-runs the corpus + leak gate on every push and pull request to the <code>zig-target</code> branch</li>
       <li><strong class="num">3,645</strong> compiler-suite tests stay green on the fork</li>
     </ul>
     <h3>The tri-target demo</h3>
@@ -678,7 +678,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 
   <section id="limits">
     <h2 class="ruled">What it is, and what it isn't</h2>
-    <p>gleam-zig is <strong>experimental</strong> but real: a fork of the actual Gleam compiler, a self-hosted standard library, a leak-proven memory system, and a corpus that matches the official compiler byte-for-byte. It is not a finished product, and these edges are deliberate, read them like a build log:</p>
+    <p>gleam-zig is <strong>experimental</strong> but real: a fork of the actual Gleam compiler, a self-hosted standard library, a leak-proven memory system, and a corpus that matches the official compiler, byte-for-byte wherever output order is defined. It is not a finished product, and these edges are deliberate, read them like a build log:</p>
     <div class="panel limits" role="table" aria-label="Known limits with severity">
       <div class="row" role="row"><span class="sev warn" role="cell">WARN</span><span class="what" role="cell">Integers are i64</span><span class="why" role="cell">Wrapping 64-bit ints, no bigint. The one semantic divergence from the BEAM's arbitrary precision, stated here, not buried.</span></div>
       <div class="row" role="row"><span class="sev warn" role="cell">WARN</span><span class="what" role="cell">No OTP</span><span class="why" role="cell">BEAM processes, supervisors, and the actor model don't exist here. <code>gleam_native</code> gives OS threads, sleep, and blocking TCP, for computational Gleam, not concurrent systems.</span></div>
