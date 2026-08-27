@@ -475,25 +475,6 @@
 
 </head>
 <body>
-<!--
-THESIS: the scoreboard's dossier page, every number on the front page opened
-up to its source, its emitted code, and the dated optimization that produced
-it; the reader leaves able to re-run everything.
-OWN-WORLD: the site's dark console (graphite #0d1117, hairline seams, Archivo
-+ JetBrains Mono tabular, pink=source amber=output); new instruments stay in
-grammar: log-log scatter in system inks, history steps as panel chips.
-STORY: a skeptic sees the whole story in one scatter (fast AND small), then
-drills any row to source, machine code, and history; losses documented with
-the same care as wins.
-FIRST VIEWPORT: title + one-line thesis; the time-vs-memory log-log scatter
-with zig's five amber dots bottom-left; ship strip under it; sticky mini-nav
-of the five dossiers begins.
-FORM: expanded scoreboard (dossier-per-benchmark), the dealt lead structure,
-locked by the user; seed key 57e5429a. Code-led.
-FINISH: unreviewed and undocumented is unfinished; this build ends with the
-finish review, the verdict, DESIGN.md, and every shipping raster carrying its
-provenance.
--->
 
 <div class="topbar">
   <div class="topbar-inner">
@@ -679,7 +660,6 @@ provenance.
     <p class="g-note">artifact = everything that must ship for the program to run: the exported binary (zig), the JS build tree including gleam_stdlib and the prelude (node), the compiled BEAM files (erlang). None of them count a runtime the machine must already have. Full dossiers below.</p>
   </div>
 </div>
-
 
   <div class="ship" role="group" aria-label="Deploy artifact comparison">
     <div><div class="w a">zig ships ~380 KB</div><div class="d">one static binary, no runtime installed, cross-compiled with <code>--target-triple</code></div></div>
@@ -938,7 +918,6 @@ provenance.
 </div>
 </section>
 
-
 <section class="dossier" id="d-tree">
   <h2>Binary trees <span class="verdict">zig 1.4&times; node; memory still the loss</span></h2>
   <p class="lede" style="margin-top:14px">Build a full depth-21 binary tree four times and walk it. Millions of multi-constructor records allocated, pattern-matched, and released, the allocation benchmark, and the row that drove the most recent runtime work.</p>
@@ -950,7 +929,6 @@ provenance.
   <div class="prose"><p><strong>What changed:</strong> counting allocations by shape found that half of every record this benchmark allocates, 81,920 of 163,830, is a <code>Leaf</code>, a nullary constructor carrying no payload at all. A full binary tree has more leaves than internal nodes, so the majority allocation was a 120-byte heap record representing nothing. Nullary constructors are constants, so each variant now gets one immortal shared value instead. Peak memory fell from 2.0 GB to 1.03 GB, exactly the predicted half.</p>
   <p><strong>What this row cost to get right:</strong> the figure published here (1.07&nbsp;s) stopped reproducing, and chasing that found a real regression. The runtime’s two environment gates, the leak check and the pooling switch, were each scanning the whole process environment per call, and both sit on the allocation path. At 16.8&nbsp;million records this benchmark spent over a billion string comparisons deciding, repeatedly, that nothing had changed. Resolving each gate once took depth 21 from 42.5&nbsp;s to 0.70&nbsp;s. The ray tracer, which had drifted the same way, returned to 0.08&nbsp;s with byte-identical output.</p><p><strong>Still open:</strong> memory. 1.03&nbsp;GB against node’s 885&nbsp;MB and the BEAM’s 834&nbsp;MB is the one number on this page where zig loses outright, and it is structural: a live depth-21 tree is 4.2&nbsp;million <code>Node</code> records at 120&nbsp;bytes each. The 56-byte header is the target, a comptime name-hash tag, labels folded into the tag word, or pooling by arity, but this row is also the standing reminder to measure first: the last guess about where record cost sat was wrong by 2&times;.</p></div>
 </section>
-
 
 <section class="dossier" id="method">
   <h2>Method</h2>
