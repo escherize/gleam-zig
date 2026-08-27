@@ -110,27 +110,45 @@ pub const Cons = struct {
     tail: ?*const Cons,
 };
 
-pub const Record = struct {
-    rc: usize,
-    /// Variant name, e.g. "Ok". Variant identity is (name, arity), which is
-    /// unique within a type, and values of different types never meet in a
+/// Per-variant constants, one static instance per (name, labels) pair rather
+/// than a copy in every value. Keeping these out of Record is what lets a
+/// record fit the 128-byte allocator size class: at 184 bytes every record
+/// paid for a 256-byte slot.
+pub const VariantInfo = struct {
+    /// Variant name, e.g. "Ok". Variant identity is (name, arity), unique
+    /// within a type, and values of different types never meet in a
     /// well-typed pattern match. Always a static string.
     name: []const u8,
-    fields: []const Value,
     /// Field labels for inspection, null when a field is positional.
     /// Empty when no field has a label. Always static strings.
     labels: []const ?[]const u8 = &.{},
-    /// Storage for small records: `fields` points here for arity <= 4,
+};
+
+pub const Record = struct {
+    rc: usize,
+    info: *const VariantInfo,
+    fields: []const Value,
+    /// Storage for small records: `fields` points here for arity <= 3,
     /// halving allocator traffic on the dominant record shapes (Ok/Error,
-    /// pairs, vectors). Readers only ever see the slice.
+    /// pairs, tree nodes). Readers only ever see the slice. Three, not four:
+    /// a fourth would put Record over 128 bytes and double its slot, and
+    /// arity-4 records did not appear anywhere in the corpus.
     inline_fields: [max_inline_fields]Value = undefined,
 
     pub fn fieldsAreInline(self: *const Record) bool {
         return @intFromPtr(self.fields.ptr) == @intFromPtr(&self.inline_fields);
     }
+
+    pub fn name(self: *const Record) []const u8 {
+        return self.info.name;
+    }
+
+    pub fn labels(self: *const Record) []const ?[]const u8 {
+        return self.info.labels;
+    }
 };
 
-pub const max_inline_fields = 4;
+pub const max_inline_fields = 3;
 
 /// All function values share one shape: a type-erased pointer to a lifted
 /// function whose first parameter is the captured environment. Call sites
@@ -503,8 +521,43 @@ pub fn tupleValue(elements: []const Value) Value {
 }
 
 /// Consumes the fields; name must be a static string.
-pub fn makeRecord(name: []const u8, fields: []const Value) Value {
+pub fn makeRecord(comptime name: []const u8, fields: []const Value) Value {
     return makeRecordL(name, fields, &.{});
+}
+
+/// Same, for a name only known at runtime. Hand-written FFI picks variant
+/// names from an errno or similar; generated code never needs this. The
+/// VariantInfo is allocated once per distinct name and never freed, since
+/// records share it and the set is tiny and bounded by the FFI surface.
+pub fn makeRecordDynamic(name: []const u8, fields: []const Value) Value {
+    const record = poolPopRecord() orelse
+        rc_allocator().create(Record) catch @panic("out of memory");
+    record.rc = 1;
+    record.info = dynamicVariantInfo(name);
+    if (fields.len == 0) {
+        record.fields = &.{};
+    } else if (fields.len <= max_inline_fields) {
+        @memcpy(record.inline_fields[0..fields.len], fields);
+        record.fields = record.inline_fields[0..fields.len];
+    } else {
+        const copied = allocValueSlice(fields.len);
+        @memcpy(copied, fields);
+        record.fields = copied;
+    }
+    return Value{ .record = record };
+}
+
+var dynamic_infos: [64]VariantInfo = undefined;
+var dynamic_count: usize = 0;
+
+fn dynamicVariantInfo(name: []const u8) *const VariantInfo {
+    for (dynamic_infos[0..dynamic_count]) |*existing| {
+        if (std.mem.eql(u8, existing.name, name)) return existing;
+    }
+    if (dynamic_count == dynamic_infos.len) @panic("too many dynamic variant names");
+    dynamic_infos[dynamic_count] = .{ .name = name, .labels = &.{} };
+    dynamic_count += 1;
+    return &dynamic_infos[dynamic_count - 1];
 }
 
 /// A nullary constructor (`Leaf`, `None`, ...) carries no payload, so every
@@ -524,25 +577,36 @@ pub fn nullaryRecord(comptime name: []const u8) Value {
     const shared = struct {
         var record: Record = .{
             .rc = immortal_rc,
-            .name = name,
+            .info = variantInfo(name, &.{}),
             .fields = &.{},
-            .labels = &.{},
         };
     };
     return Value{ .record = &shared.record };
 }
 
+/// One static VariantInfo per (name, labels) pair. Both are comptime at every
+/// call site, so each variant interns to a single instance no matter how many
+/// values of it exist.
+pub fn variantInfo(
+    comptime name: []const u8,
+    comptime labels: []const ?[]const u8,
+) *const VariantInfo {
+    const shared = struct {
+        const info: VariantInfo = .{ .name = name, .labels = labels };
+    };
+    return &shared.info;
+}
+
 /// Consumes the fields; name and labels must be static strings.
 pub fn makeRecordL(
-    name: []const u8,
+    comptime name: []const u8,
     fields: []const Value,
-    labels: []const ?[]const u8,
+    comptime labels: []const ?[]const u8,
 ) Value {
     const record = poolPopRecord() orelse
         rc_allocator().create(Record) catch @panic("out of memory");
     record.rc = 1;
-    record.name = name;
-    record.labels = labels;
+    record.info = variantInfo(name, labels);
     if (fields.len == 0) {
         record.fields = &.{};
     } else if (fields.len <= max_inline_fields) {
@@ -784,14 +848,13 @@ pub fn dropReuseRecord(subject: Value, arity: usize) ?*Record {
 /// Consumes the fields; name and labels must be static strings.
 pub fn makeRecordReuse(
     token: ?*Record,
-    name: []const u8,
+    comptime name: []const u8,
     fields: []const Value,
-    labels: []const ?[]const u8,
+    comptime labels: []const ?[]const u8,
 ) Value {
     if (token) |record| {
         @memcpy(@constCast(record.fields), fields);
-        record.name = name;
-        record.labels = labels;
+        record.info = variantInfo(name, labels);
         return Value{ .record = record };
     }
     return makeRecordL(name, fields, labels);
@@ -856,8 +919,7 @@ pub fn deepCopy(value: Value) Value {
         .record => |r| {
             const record = rc_allocator().create(Record) catch @panic("out of memory");
             record.rc = 1;
-            record.name = r.name;
-            record.labels = r.labels;
+            record.info = r.info;
             if (r.fields.len == 0) {
                 record.fields = &.{};
             } else if (r.fields.len <= max_inline_fields) {
@@ -1162,7 +1224,7 @@ pub fn stringLiteralEquals(value: Value, literal: []const u8) bool {
 }
 
 pub fn recordHasName(value: Value, name: []const u8) bool {
-    return std.mem.eql(u8, value.record.name, name);
+    return std.mem.eql(u8, value.record.name(), name);
 }
 
 // ---------------------------------------------------------------- equality
@@ -1193,7 +1255,7 @@ fn hashInto(hasher: *std.hash.Wyhash, value: Value) void {
         },
         .tuple => |elements| for (elements) |element| hashInto(hasher, element),
         .record => |record| {
-            hasher.update(record.name);
+            hasher.update(record.name());
             for (record.fields) |field| hashInto(hasher, field);
         },
         .closure => |closure| {
@@ -1230,7 +1292,7 @@ pub fn isEqual(a: Value, b: Value) bool {
             return true;
         },
         .record => {
-            if (!std.mem.eql(u8, a.record.name, b.record.name)) return false;
+            if (!std.mem.eql(u8, a.record.name(), b.record.name())) return false;
             if (a.record.fields.len != b.record.fields.len) return false;
             for (a.record.fields, b.record.fields) |x, y| {
                 if (!isEqual(x, y)) return false;
@@ -1356,13 +1418,13 @@ fn inspect(writer: anytype, value: Value) void {
             writer.print(")", .{}) catch {};
         },
         .record => {
-            writer.print("{s}", .{value.record.name}) catch {};
+            writer.print("{s}", .{value.record.name()}) catch {};
             if (value.record.fields.len != 0) {
                 writer.print("(", .{}) catch {};
                 for (value.record.fields, 0..) |field, index| {
                     if (index != 0) writer.print(", ", .{}) catch {};
-                    if (index < value.record.labels.len) {
-                        if (value.record.labels[index]) |label| {
+                    if (index < value.record.labels().len) {
+                        if (value.record.labels()[index]) |label| {
                             writer.print("{s}: ", .{label}) catch {};
                         }
                     }
