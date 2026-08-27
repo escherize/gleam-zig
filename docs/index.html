@@ -409,7 +409,7 @@
 }</pre>
       </div>
       <div class="pane pane--out">
-        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">fib.zig: emitted, verbatim</span><span class="dot" aria-hidden="true"></span></div>
+        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">fib.zig: emitted, condensed</span><span class="dot" aria-hidden="true"></span></div>
 <pre id="stream"><span class="stream-line"><span class="zk">fn</span> <span class="gn">@"native$fib"</span>(<span class="gn">@"v$n"</span>: <span class="ty">i64</span>) <span class="ty">i64</span> {</span><span class="stream-line">    <span class="zk">const</span> s = P.boolValue((<span class="gn">@"v$n"</span> &lt; <span class="num">2</span>));</span><span class="stream-line">    c0: {</span><span class="stream-line">        <span class="zk">if</span> (!((s).bool)) <span class="zk">break</span> :c0;</span><span class="stream-line">        <span class="zk">return</span> <span class="gn">@"v$n"</span>;</span><span class="stream-line">    }</span><span class="stream-line">    <span class="zk">return</span> <span class="gn">@"native$fib"</span>((<span class="gn">@"v$n"</span> -% <span class="num">1</span>))</span><span class="stream-line">         +% <span class="gn">@"native$fib"</span>((<span class="gn">@"v$n"</span> -% <span class="num">2</span>));</span><span class="stream-line">}</span><span class="stream-line"><span class="cm">// + a boxed wrapper for polymorphic callers:</span></span><span class="stream-line"><span class="zk">pub fn</span> <span class="fn">@"fib"</span>(a: <span class="ty">Value</span>) <span class="ty">Value</span> {</span><span class="stream-line">    <span class="zk">return</span> P.intValue(<span class="gn">@"native$fib"</span>((a).int));</span><span class="stream-line">}</span></pre>
       </div>
     </div>
@@ -430,12 +430,15 @@ git clone https://github.com/escherize/gleam-zig-workspace workspace
 <span class="pr">cd</span> workspace
 git clone https://github.com/escherize/gleam-zig gleam
 git clone https://github.com/escherize/gleam-zig-stdlib gleam-stdlib
+<span class="cm"># the harness writes simplifile into every scratch project, and the tour
+# supplies 59 of the 119 corpus programs; skip both if you only want to build</span>
+git clone https://github.com/escherize/gleam-zig-simplifile simplifile
+git clone --depth 1 https://github.com/gleam-lang/language-tour tour
 
-<span class="cm"># zig 0.16.0 is fetched automatically on first run (manual install optional, below)</span>
-mkdir toolchain &amp;&amp; <span class="pr">cd</span> toolchain
-curl -O https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz
-tar xf zig-aarch64-macos-0.16.0.tar.xz &amp;&amp; <span class="pr">cd</span> ..
-<span class="pr">export</span> GLEAM_ZIG=$PWD/toolchain/zig-aarch64-macos-0.16.0/zig
+<span class="cm"># nothing here installs zig: the compiler fetches the pinned 0.16.0 itself on
+# the first zig-target command. To supply your own instead, set GLEAM_ZIG, which
+# takes precedence over the cache, a zig on PATH, and the download:
+#   export GLEAM_ZIG=/path/to/zig    # ziglang.org/download/0.16.0/</span>
 
 <span class="cm"># build the compiler (this is the whole Gleam compiler, plus the zig backend)</span>
 <span class="pr">cd</span> gleam &amp;&amp; cargo build -p gleam &amp;&amp; <span class="pr">cd</span> ..</pre>
@@ -493,7 +496,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       </tbody>
     </table>
     </div>
-    <p>The honest headline: this target wins <strong>footprint and deployment</strong> on every measured workload, using 1.5x to 69x less memory than node and the BEAM, in a single dependency-free file. The spread is wide because it depends on how much the program allocates: the scalar workloads sit near 1&nbsp;MB against 50&nbsp;to&nbsp;83&nbsp;MB, while binary trees holds millions of live refcounted records and wins by only 1.5x. After the unboxing, borrowing, and liveness work, it wins the compute too. The scoreboard, method and caveats included, is in <a href="#bench">benchmarks</a>.</p>
+    <p>The honest headline: this target wins <strong>footprint and deployment</strong> on every measured workload, using 1.5x to 69x less memory than node and the BEAM, in a single dependency-free file. The spread is wide because it depends on how much the program keeps alive: coin change and vector records finish near 1.2&nbsp;MB against 49&nbsp;to&nbsp;83&nbsp;MB, while binary trees holds millions of live refcounted tree cells and wins by only 1.5x. After the unboxing, borrowing, and liveness work, it wins the compute too. The scoreboard, method and caveats included, is in <a href="#bench">benchmarks</a>.</p>
   </section>
 
   <section id="bench">
@@ -569,7 +572,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
         <div class="body">The standard library's pure bulk, <code>list</code>, <code>result</code>, <code>option</code>, <code>order</code>, <code>pair</code>, <code>set</code>, folds and sorts and Result plumbing, is <strong>Gleam source compiled by this compiler</strong>. It runs Gleam's actual logic, not a reimplementation.</div>
       </div>
       <div class="panel layer">
-        <div class="panel-head"><span class="who">gleam_stdlib.zig, the externals core</span><span class="plate"></span><span class="badge num">77 fns · 660 lines</span></div>
+        <div class="panel-head"><span class="who">gleam_stdlib.zig, the externals core</span><span class="plate"></span><span class="badge num">98 fns · 921 lines</span></div>
         <div class="body">The only hand-written layer: Zig implementations of the <code>@external</code> functions the stdlib bottoms out in, string codepoints, float formatting, parsing, I/O. This is the one place a bug could be <em>silent</em>; everything above it fails loud. Sibling forks cover <code>simplifile</code>, <code>argv</code>, <code>envoy</code>, and <code>gleam_native</code> (threads, TCP, time).</div>
       </div>
     </div>
