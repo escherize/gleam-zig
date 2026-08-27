@@ -1,0 +1,609 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - link "gleam-zig home" [ref=e4] [cursor=pointer]:
+      - /url: index.html
+      - generic [ref=e5]:
+        - img "Gleam" [ref=e6]
+        - img [ref=e7]
+        - img "Zig" [ref=e9]
+      - text: gleam
+      - generic [ref=e10]: "-zig"
+    - navigation "Sections" [ref=e11]:
+      - link "start" [ref=e12] [cursor=pointer]:
+        - /url: index.html#start
+      - link "vs erlang/js" [ref=e13] [cursor=pointer]:
+        - /url: index.html#backends
+      - link "benchmarks" [ref=e14] [cursor=pointer]:
+        - /url: benchmarks.html
+      - link "runtime" [ref=e15] [cursor=pointer]:
+        - /url: index.html#runtime
+      - link "verification" [ref=e16] [cursor=pointer]:
+        - /url: index.html#verify
+      - link "limits" [ref=e17] [cursor=pointer]:
+        - /url: index.html#limits
+      - link "GitHub" [ref=e18] [cursor=pointer]:
+        - /url: https://github.com/escherize/gleam-zig
+        - img [ref=e19]
+        - text: GitHub
+  - generic [ref=e22]:
+    - heading "Every number, opened up." [level=1] [ref=e23]
+    - paragraph [ref=e24]: "Each front-page number, opened to its source, its emitted machine code, and its optimization history. One plot carries the whole argument:"
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - text: time × memory, all eighteen runs
+        - generic [ref=e27]: log-log; down and left is better; CPU seconds vs peak memory footprint
+      - img "Scatter plot of CPU time versus peak memory for six benchmarks on three targets; zig's points cluster in the fast, low-memory corner. Hover any point for its exact numbers." [ref=e29]:
+        - generic [ref=e31]: ↙ most attractive quadrant
+        - generic [ref=e32]: 0.01 s
+        - generic [ref=e33]: 0.1 s
+        - generic [ref=e34]: 1 s
+        - generic [ref=e35]: 1 MB
+        - generic [ref=e36]: 10 MB
+        - generic [ref=e37]: 100 MB
+        - generic [ref=e38]: 1 GB
+        - button "String building · erlang / OTP 27 · 0.11 s / 123 MB" [ref=e39] [cursor=pointer]
+        - button "Dictionary · erlang / OTP 27 · 0.11 s / 87 MB" [ref=e40] [cursor=pointer]
+        - button "Ray tracer · erlang / OTP 27 · 0.33 s / 74 MB" [ref=e41] [cursor=pointer]
+        - button "Coin change · erlang / OTP 27 · 0.45 s / 73 MB" [ref=e42] [cursor=pointer]
+        - button "Vector records · erlang / OTP 27 · 0.13 s / 73 MB" [ref=e43] [cursor=pointer]
+        - button "Binary trees · erlang / OTP 27 · 0.46 s / 834 MB" [ref=e44] [cursor=pointer]
+        - button "String building · node 22 · 0.28 s / 118 MB" [ref=e45] [cursor=pointer]
+        - button "Dictionary · node 22 · 0.07 s / 78 MB" [ref=e46] [cursor=pointer]
+        - button "Ray tracer · node 22 · 0.17 s / 33 MB" [ref=e47] [cursor=pointer]
+        - button "Coin change · node 22 · 0.83 s / 49 MB" [ref=e48] [cursor=pointer]
+        - button "Vector records · node 22 · 0.05 s / 50 MB" [ref=e49] [cursor=pointer]
+        - button "Binary trees · node 22 · 0.96 s / 756 MB" [ref=e50] [cursor=pointer]
+        - button "String building · zig · static binary · 0.01 s / 19 MB" [ref=e51] [cursor=pointer]
+        - button "Dictionary · zig · static binary · 0.01 s / 7 MB" [ref=e52] [cursor=pointer]
+        - button "Ray tracer · zig · static binary · 0.08 s / 5.7 MB" [ref=e53] [cursor=pointer]
+        - button "Coin change · zig · static binary · 0.12 s / 1.2 MB" [ref=e54] [cursor=pointer]
+        - button "Vector records · zig · static binary · 0.03 s / 1.2 MB" [ref=e55] [cursor=pointer]
+        - button "Binary trees · zig · static binary · 0.70 s / 1.03 GB" [ref=e56] [cursor=pointer]
+        - generic [ref=e57]: zig
+        - generic [ref=e58]: node
+        - generic [ref=e59]: erlang
+    - generic [ref=e60]:
+      - generic [ref=e61]: zig (static binary)
+      - generic [ref=e63]: node 22
+      - generic [ref=e65]: erlang / OTP 27 (CPU, boot excluded)
+    - generic [ref=e67]:
+      - generic [ref=e68]:
+        - text: "at a glance: six workloads × three costs"
+        - generic [ref=e69]: user CPU · peak memory footprint · shipped artifact; each bar scales to the worst target in its cell
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - generic [ref=e73]: cpu
+            - generic [ref=e74]: memory
+            - generic [ref=e75]: artifact
+          - generic [ref=e76]:
+            - generic [ref=e77]:
+              - text: string building
+              - generic [ref=e78]: 200k-piece fold
+            - generic [ref=e79]:
+              - generic [ref=e80]:
+                - generic [ref=e81]: zig
+                - generic [ref=e83]: "0.01"
+              - generic [ref=e84]:
+                - generic [ref=e85]: node
+                - generic [ref=e87]: "0.28"
+              - generic [ref=e88]:
+                - generic [ref=e89]: erl
+                - generic [ref=e91]: "0.11"
+            - generic [ref=e92]:
+              - generic [ref=e93]:
+                - generic [ref=e94]: zig
+                - generic [ref=e96]: 19 MB
+              - generic [ref=e97]:
+                - generic [ref=e98]: node
+                - generic [ref=e100]: 118 MB
+              - generic [ref=e101]:
+                - generic [ref=e102]: erl
+                - generic [ref=e104]: 123 MB
+            - generic [ref=e105]:
+              - generic [ref=e106]:
+                - generic [ref=e107]: zig
+                - generic [ref=e109]: 372 K
+              - generic [ref=e110]:
+                - generic [ref=e111]: node
+                - generic [ref=e113]: 848 K
+              - generic [ref=e114]:
+                - generic [ref=e115]: erl
+                - generic [ref=e117]: 1376 K
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - text: dictionary
+              - generic [ref=e120]: 10k keys, insert + lookup
+            - generic [ref=e121]:
+              - generic [ref=e122]:
+                - generic [ref=e123]: zig
+                - generic [ref=e125]: <0.01
+              - generic [ref=e126]:
+                - generic [ref=e127]: node
+                - generic [ref=e129]: "0.07"
+              - generic [ref=e130]:
+                - generic [ref=e131]: erl
+                - generic [ref=e133]: "0.11"
+            - generic [ref=e134]:
+              - generic [ref=e135]:
+                - generic [ref=e136]: zig
+                - generic [ref=e138]: 7 MB
+              - generic [ref=e139]:
+                - generic [ref=e140]: node
+                - generic [ref=e142]: 78 MB
+              - generic [ref=e143]:
+                - generic [ref=e144]: erl
+                - generic [ref=e146]: 87 MB
+            - generic [ref=e147]:
+              - generic [ref=e148]:
+                - generic [ref=e149]: zig
+                - generic [ref=e151]: 389 K
+              - generic [ref=e152]:
+                - generic [ref=e153]: node
+                - generic [ref=e155]: 848 K
+              - generic [ref=e156]:
+                - generic [ref=e157]: erl
+                - generic [ref=e159]: 1380 K
+          - generic [ref=e160]:
+            - generic [ref=e161]:
+              - text: ray tracer
+              - generic [ref=e162]: 320x240, depth 3
+            - generic [ref=e163]:
+              - generic [ref=e164]:
+                - generic [ref=e165]: zig
+                - generic [ref=e167]: "0.08"
+              - generic [ref=e168]:
+                - generic [ref=e169]: node
+                - generic [ref=e171]: "0.17"
+              - generic [ref=e172]:
+                - generic [ref=e173]: erl
+                - generic [ref=e175]: "0.33"
+            - generic [ref=e176]:
+              - generic [ref=e177]:
+                - generic [ref=e178]: zig
+                - generic [ref=e180]: 6 MB
+              - generic [ref=e181]:
+                - generic [ref=e182]: node
+                - generic [ref=e184]: 33 MB
+              - generic [ref=e185]:
+                - generic [ref=e186]: erl
+                - generic [ref=e188]: 74 MB
+            - generic [ref=e189]:
+              - generic [ref=e190]:
+                - generic [ref=e191]: zig
+                - generic [ref=e193]: 389 K
+              - generic [ref=e194]:
+                - generic [ref=e195]: node
+                - generic [ref=e197]: 848 K
+              - generic [ref=e198]:
+                - generic [ref=e199]: erl
+                - generic [ref=e201]: 1192 K
+          - generic [ref=e202]:
+            - generic [ref=e203]:
+              - text: coin change
+              - generic [ref=e204]: naive recursion, amount 900
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - generic [ref=e207]: zig
+                - generic [ref=e209]: "0.12"
+              - generic [ref=e210]:
+                - generic [ref=e211]: node
+                - generic [ref=e213]: "0.84"
+              - generic [ref=e214]:
+                - generic [ref=e215]: erl
+                - generic [ref=e217]: "0.45"
+            - generic [ref=e218]:
+              - generic [ref=e219]:
+                - generic [ref=e220]: zig
+                - generic [ref=e222]: 1.2 MB
+              - generic [ref=e223]:
+                - generic [ref=e224]: node
+                - generic [ref=e226]: 49 MB
+              - generic [ref=e227]:
+                - generic [ref=e228]: erl
+                - generic [ref=e230]: 73 MB
+            - generic [ref=e231]:
+              - generic [ref=e232]:
+                - generic [ref=e233]: zig
+                - generic [ref=e235]: 371 K
+              - generic [ref=e236]:
+                - generic [ref=e237]: node
+                - generic [ref=e239]: 848 K
+              - generic [ref=e240]:
+                - generic [ref=e241]: erl
+                - generic [ref=e243]: 1380 K
+          - generic [ref=e244]:
+            - generic [ref=e245]:
+              - text: vector records
+              - generic [ref=e246]: 10M iterations
+            - generic [ref=e247]:
+              - generic [ref=e248]:
+                - generic [ref=e249]: zig
+                - generic [ref=e251]: "0.03"
+              - generic [ref=e252]:
+                - generic [ref=e253]: node
+                - generic [ref=e255]: "0.05"
+              - generic [ref=e256]:
+                - generic [ref=e257]: erl
+                - generic [ref=e259]: "0.13"
+            - generic [ref=e260]:
+              - generic [ref=e261]:
+                - generic [ref=e262]: zig
+                - generic [ref=e264]: 1.2 MB
+              - generic [ref=e265]:
+                - generic [ref=e266]: node
+                - generic [ref=e268]: 50 MB
+              - generic [ref=e269]:
+                - generic [ref=e270]: erl
+                - generic [ref=e272]: 73 MB
+            - generic [ref=e273]:
+              - generic [ref=e274]:
+                - generic [ref=e275]: zig
+                - generic [ref=e277]: 371 K
+              - generic [ref=e278]:
+                - generic [ref=e279]: node
+                - generic [ref=e281]: 848 K
+              - generic [ref=e282]:
+                - generic [ref=e283]: erl
+                - generic [ref=e285]: 1380 K
+          - generic [ref=e286]:
+            - generic [ref=e287]:
+              - text: binary trees
+              - generic [ref=e288]: depth 21, 4 rebuilds
+            - generic [ref=e289]:
+              - generic [ref=e290]:
+                - generic [ref=e291]: zig
+                - generic [ref=e293]: "0.70"
+              - generic [ref=e294]:
+                - generic [ref=e295]: node
+                - generic [ref=e297]: "0.96"
+              - generic [ref=e298]:
+                - generic [ref=e299]: erl
+                - generic [ref=e301]: "0.46"
+            - generic [ref=e302]:
+              - generic [ref=e303]:
+                - generic [ref=e304]: zig
+                - generic [ref=e306]: 1.03 GB
+              - generic [ref=e307]:
+                - generic [ref=e308]: node
+                - generic [ref=e310]: 756 MB
+              - generic [ref=e311]:
+                - generic [ref=e312]: erl
+                - generic [ref=e314]: 834 MB
+            - generic [ref=e315]:
+              - generic [ref=e316]:
+                - generic [ref=e317]: zig
+                - generic [ref=e319]: 371 K
+              - generic [ref=e320]:
+                - generic [ref=e321]: node
+                - generic [ref=e323]: 848 K
+              - generic [ref=e324]:
+                - generic [ref=e325]: erl
+                - generic [ref=e327]: 1380 K
+        - paragraph [ref=e328]: "artifact = everything that must ship for the program to run: the exported binary (zig), the JS build tree including gleam_stdlib and the prelude (node), the compiled BEAM files (erlang). None of them count a runtime the machine must already have. Full dossiers below."
+    - group "Deploy artifact comparison" [ref=e329]:
+      - generic [ref=e330]:
+        - generic [ref=e331]: zig ships ~380 KB
+        - generic [ref=e332]:
+          - text: one static binary, no runtime installed, cross-compiled with
+          - code [ref=e333]: "--target-triple"
+      - generic [ref=e334]:
+        - generic [ref=e335]: node ships ~848 KB
+        - generic [ref=e336]: the emitted module is 20 KB of it; the rest is gleam_stdlib and the prelude, without which it will not run — plus a ~65 MB node runtime the machine must already have
+      - generic [ref=e337]:
+        - generic [ref=e338]: erlang ships a release
+        - generic [ref=e339]: plus an OTP install; ~1 s VM boot before the first line runs
+    - navigation "Benchmarks" [ref=e340]:
+      - link "string building" [ref=e341] [cursor=pointer]:
+        - /url: "#d-string"
+      - link "dictionary" [ref=e342] [cursor=pointer]:
+        - /url: "#d-dict"
+      - link "ray tracer" [ref=e343] [cursor=pointer]:
+        - /url: "#d-ray"
+      - link "coin change" [ref=e344] [cursor=pointer]:
+        - /url: "#d-coin"
+      - link "vector records" [ref=e345] [cursor=pointer]:
+        - /url: "#d-vec"
+      - link "binary trees" [ref=e346] [cursor=pointer]:
+        - /url: "#d-tree"
+      - link "method" [ref=e347] [cursor=pointer]:
+        - /url: "#method"
+  - main [ref=e349]:
+    - generic [ref=e350]:
+      - heading "String building — zig 28× node, 11× the BEAM" [level=2] [ref=e351]
+      - paragraph [ref=e352]: 200,000 pieces folded onto one accumulator. The workload every templater, serializer, and logger is secretly made of.
+      - generic [ref=e354]:
+        - generic [ref=e355]:
+          - generic [ref=e356]: zig
+          - generic [ref=e358]: 0.01 s
+          - generic [ref=e359]: 19 MB
+        - generic [ref=e360]:
+          - generic [ref=e361]: node
+          - generic [ref=e363]: 0.28 s
+          - generic [ref=e364]: 118 MB
+        - generic [ref=e365]:
+          - generic [ref=e366]: erlang
+          - generic [ref=e368]: 0.11 s
+          - generic [ref=e369]: 123 MB
+      - generic [ref=e371]:
+        - generic [ref=e372]:
+          - generic [ref=e374]: the benchmark
+          - generic [ref=e376]: "let joined = list.fold(parts, \"\", fn(acc, x) { acc <> x <> \";\" })"
+        - generic [ref=e377]:
+          - generic [ref=e379]: the hot path — runtime, in-place append
+          - generic [ref=e381]: "// acc reaches here with refcount 1, so: if (need <= have) { // room in the buffer: just write @memcpy(out[a.len..], b); } else { // double the buffer, capacity in the header while (new_words < need) new_words *= 2; realloc(...); grown[0] = 1 | (new_words << 32); }"
+      - paragraph [ref=e383]:
+        - strong [ref=e384]: "Why it's fast:"
+        - text: two pieces had to land together. The runtime tracks buffer capacity in the string header and appends in place when the left operand is unshared — but that only fires if the accumulator actually
+        - emphasis [ref=e385]: reaches
+        - text: the append with refcount 1.
+        - code [ref=e386]: list.fold
+        - text: uses its accumulator once in each of two case clauses, which naive analysis reads as two uses. Per-clause liveness (only one clause runs) approves the transfer, the refcount stays 1, and 200k appends become an amortized-linear write instead of 200k full copies. Node's string concat is rope-optimized and still loses 6×.
+      - 'img "Optimization history: user CPU time stepping down across experiments. Hover each step for what changed." [ref=e388]':
+        - generic [ref=e389]: 100 ms
+        - generic [ref=e390]: 1 s
+        - generic [ref=e391]: 10 s
+        - 'generic "O(n2): accumulator copied per append: 8.6 s" [ref=e393]'
+        - generic [ref=e394]: "8.6"
+        - 'generic "capacity headers alone: blocked, acc never rc==1: 8.6 s" [ref=e395]'
+        - generic [ref=e396]: "8.6"
+        - 'generic "per-clause last-use moves, 08-21: 0.02 s" [ref=e397]'
+        - generic [ref=e398]: "0.02"
+    - generic [ref=e399]:
+      - heading "Dictionary — zig 7× node, 11× the BEAM" [level=2] [ref=e400]
+      - paragraph [ref=e401]: Ten thousand keys inserted into a map, then every one looked up again. The workload every real program does — indexing data — and the worst thing this target currently does.
+      - generic [ref=e403]:
+        - generic [ref=e404]:
+          - generic [ref=e405]: zig
+          - generic [ref=e407]: <0.01 s
+          - generic [ref=e408]: 7 MB
+        - generic [ref=e409]:
+          - generic [ref=e410]: node
+          - generic [ref=e412]: 0.07 s
+          - generic [ref=e413]: 78 MB
+        - generic [ref=e414]:
+          - generic [ref=e415]: erlang
+          - generic [ref=e417]: 0.11 s
+          - generic [ref=e418]: 87 MB
+      - generic [ref=e419]:
+        - paragraph [ref=e420]:
+          - strong [ref=e421]: "How it was won:"
+          - text: until this row appeared on the board,
+          - code [ref=e422]: gleam/dict
+          - text: on this target was an insertion-ordered association list — every
+          - code [ref=e423]: insert
+          - text: scanned for an existing key and every
+          - code [ref=e424]: get
+          - text: "scanned to find one, so the workload was O(n²) against two real hash maps. No codegen work could have rescued that; it was a data structure that had not been written. It is now a hash array mapped trie, the same structure the JavaScript target uses: five hash bits per level, 32-way branching, so a lookup touches three or four nodes and an insert copies one node per level instead of the whole dict."
+        - paragraph [ref=e425]: "The nodes are ordinary reference-counted values, so the runtime's existing memory discipline covers the trie with no new lifetime rules — the leak gate checks it on every corpus run like everything else. One semantic consequence, stated plainly: iteration order is hash order now rather than insertion order. That order was always unspecified and differs on all three targets; the new one happens to agree with erlang where the old one happened to agree with V8."
+      - 'img "Optimization history: user CPU time stepping down across experiments. Hover each step for what changed." [ref=e427]':
+        - generic [ref=e428]: 10 ms
+        - generic [ref=e429]: 100 ms
+        - generic [ref=e430]: 1 s
+        - 'generic "assoc list, O(n) per op: 1.12 s" [ref=e432]'
+        - generic [ref=e433]: "1.12"
+        - 'generic "HAMT, 08-21: 0.011 s" [ref=e434]'
+        - generic [ref=e435]: "0.011"
+    - generic [ref=e436]:
+      - heading "Ray tracer — zig 2× node, byte-identical output" [level=2] [ref=e437]
+      - paragraph [ref=e438]: "The tri-target demo: 320×240, three bounces, and the PPM output is md5-identical on all three machines — this row is also a correctness proof."
+      - generic [ref=e440]:
+        - generic [ref=e441]:
+          - generic [ref=e442]: zig
+          - generic [ref=e444]: 0.08 s
+          - generic [ref=e445]: 6 MB
+        - generic [ref=e446]:
+          - generic [ref=e447]: node
+          - generic [ref=e449]: 0.17 s
+          - generic [ref=e450]: 33 MB
+        - generic [ref=e451]:
+          - generic [ref=e452]: erlang
+          - generic [ref=e454]: 0.33 s
+          - generic [ref=e455]: 74 MB
+      - generic [ref=e457]:
+        - generic [ref=e458]:
+          - generic [ref=e460]: the hot shape — vec math
+          - generic [ref=e462]: "fn dot(a: Vec, b: Vec) -> Float { a.x *. b.x +. a.y *. b.y +. a.z *. b.z }"
+        - generic [ref=e463]:
+          - generic [ref=e465]: emitted — borrowed reads, no refcounts
+          - generic [ref=e467]: "fn borrowed$dot(a: Value, b: Value) Value { return P.floatValue( ((a).record.fields[0]).float * ((b).record.fields[0]).float + ((a).record.fields[1]).float * ((b).record.fields[1]).float + ((a).record.fields[2]).float * ((b).record.fields[2]).float); }"
+      - paragraph [ref=e468]:
+        - link "Turn the knobs" [ref=e469] [cursor=pointer]:
+          - /url: explorer.html
+        - text: ": this render measured across resolutions to 8K and bounces to 10."
+      - paragraph [ref=e471]:
+        - strong [ref=e472]: "Why it's fast — eventually:"
+        - text: this number took six optimizations and one wrong diagnosis. The hot path is
+        - code [ref=e473]: Vec
+        - text: record math; the wins came from borrowed field reads (no refcount round-trip per
+        - code [ref=e474]: v.x
+        - text: ), in-place record reuse in pattern-matched constructions, a borrowed parameter ABI for the vector helpers, and — the day's embarrassment — discovering that a third of the runtime was 230,000
+        - code [ref=e475]: mmap
+        - text: syscalls from a scratch allocator, misdiagnosed the previous night as "output writes". Inline field storage for small records closed the final gap past V8.
+      - 'img "Optimization history: user CPU time stepping down across experiments. Hover each step for what changed." [ref=e477]':
+        - generic [ref=e478]: 100 ms
+        - 'generic "boxed everything: 0.66 s" [ref=e480]'
+        - generic [ref=e481]: "0.66"
+        - 'generic "record reuse + borrowed reads: 0.49 s" [ref=e482]'
+        - generic [ref=e483]: "0.49"
+        - 'generic "scratch allocator off mmap: 0.14 s" [ref=e484]'
+        - generic [ref=e485]: "0.14"
+        - 'generic "borrowed ABI + guards: 0.12 s" [ref=e486]'
+        - generic [ref=e487]: "0.12"
+        - 'generic "inline record fields: 0.08 s" [ref=e488]'
+        - generic [ref=e489]: "0.08"
+        - 'generic "flat record ABI, 08-21: 0.07 s" [ref=e490]'
+        - generic [ref=e491]: "0.07"
+    - generic [ref=e492]:
+      - heading "Coin change — zig 7× node, 3× the BEAM" [level=2] [ref=e493]
+      - paragraph [ref=e494]: Naive recursive counting, ~100 million calls — list pattern-matching and recursion, the BEAM's home turf. It was a loss row until self-recursive borrowing.
+      - generic [ref=e496]:
+        - generic [ref=e497]:
+          - generic [ref=e498]: zig
+          - generic [ref=e500]: 0.12 s
+          - generic [ref=e501]: 1.2 MB
+        - generic [ref=e502]:
+          - generic [ref=e503]: node
+          - generic [ref=e505]: 0.84 s
+          - generic [ref=e506]: 49 MB
+        - generic [ref=e507]:
+          - generic [ref=e508]: erlang
+          - generic [ref=e510]: 0.45 s
+          - generic [ref=e511]: 73 MB
+      - generic [ref=e513]:
+        - generic [ref=e514]:
+          - generic [ref=e516]: ways.gleam
+          - generic [ref=e518]: "fn ways(amount: Int, coins: List(Int)) -> Int { case coins { _ if amount == 0 -> 1 _ if amount < 0 -> 0 [] -> 0 [c, ..rest] -> ways(amount - c, coins) + ways(amount, rest) } }"
+        - generic [ref=e519]:
+          - generic [ref=e521]: emitted, condensed — zero refcount ops
+          - generic [ref=e523]: "fn borrowed$ways(amount, coins: Value) Value { if (amount.int == 0) return one; // raw guard if (amount.int < 0) return zero; ... // rest borrows the spine: no dup, no drop const rest = P.listValue(coins.list.?.tail); return borrowed$ways(a2, coins) // self, borrowed + borrowed$ways(amount, rest); }"
+      - paragraph [ref=e525]:
+        - strong [ref=e526]: "Why it flipped:"
+        - text: borrow inference runs to a greatest fixpoint — recursion is allowed to justify its own borrows, which is sound because call frames nest inside the outermost owner's lifetime. With
+        - code [ref=e527]: coins
+        - text: passing itself down borrowed and
+        - code [ref=e528]: rest
+        - text: borrowing the list spine out of the subject, the recursion performs
+        - emphasis [ref=e529]: zero reference-count operations per call
+        - text: . That took it from 2.53 s (three days ago) through five separate optimizations to 0.28 s — past the BEAM JIT that owned this row.
+      - 'img "Optimization history: user CPU time stepping down across experiments. Hover each step for what changed." [ref=e531]':
+        - generic [ref=e532]: 100 ms
+        - generic [ref=e533]: 1 s
+        - 'generic "boxed, dup/drop per call: 2.53 s" [ref=e535]'
+        - generic [ref=e536]: "2.53"
+        - 'generic "reuse + borrowed reads: 2.27 s" [ref=e537]'
+        - generic [ref=e538]: "2.27"
+        - 'generic "raw scalar guards: 1.25 s" [ref=e539]'
+        - generic [ref=e540]: "1.25"
+        - 'generic "pattern-binding moves: 0.81 s" [ref=e541]'
+        - generic [ref=e542]: "0.81"
+        - 'generic "self-recursive borrowing, 08-21: 0.28 s" [ref=e543]'
+        - generic [ref=e544]: "0.28"
+        - 'generic "raw list parameters, 08-22: 0.13 s" [ref=e545]'
+        - generic [ref=e546]: "0.13"
+    - generic [ref=e547]:
+      - heading "Vector records — fastest of all three targets" [level=2] [ref=e548]
+      - paragraph [ref=e549]: Ten million iterations of allocate-two-records, read-six-fields — pure allocation churn, kept as the honest stress test of the memory system.
+      - generic [ref=e551]:
+        - generic [ref=e552]:
+          - generic [ref=e553]: zig
+          - generic [ref=e555]: 0.03 s
+          - generic [ref=e556]: 1.2 MB
+        - generic [ref=e557]:
+          - generic [ref=e558]: node
+          - generic [ref=e560]: 0.05 s
+          - generic [ref=e561]: 50 MB
+        - generic [ref=e562]:
+          - generic [ref=e563]: erlang
+          - generic [ref=e565]: 0.13 s
+          - generic [ref=e566]: 73 MB
+      - generic [ref=e568]:
+        - generic [ref=e569]:
+          - generic [ref=e571]: the loop body
+          - generic [ref=e573]: let w = add(v, scale(v, 0.5)) loop(n - 1, v, acc +. dot(w, w) *. 0.000001)
+        - generic [ref=e574]:
+          - generic [ref=e576]: emitted — the allocations that remain
+          - generic [ref=e578]: "const w = bc: { // scale allocates a pooled Vec (fields inline) const t = borrowed$scale(v, P.floatValue(0.5)); // add reads it borrowed, allocates the result const r = borrowed$add(v, t); P.drop(t); // back to the pool break :bc r; };"
+      - paragraph [ref=e580]:
+        - strong [ref=e581]: "Why it stopped losing:"
+        - text: "the JITs escape-analyze these temporaries into registers, so for weeks this row was the honest loss on the board. The flat record ABI answers it directly: a single-constructor record whose fields are all scalars now travels as a zig struct inside its module, so"
+        - code [ref=e582]: add
+        - text: /
+        - code [ref=e583]: scale
+        - text: /
+        - code [ref=e584]: dot
+        - text: "compile to register arithmetic with no allocation at all — 0.17 s to 0.03 s, past both JITs. What stays boxed is what the rule excludes: multi-constructor types, records holding strings or lists, anything generic."
+      - 'img "Optimization history: user CPU time stepping down across experiments. Hover each step for what changed." [ref=e586]':
+        - generic [ref=e587]: 100 ms
+        - 'generic "boxed + full RC traffic: 0.34 s" [ref=e589]'
+        - generic [ref=e590]: "0.34"
+        - 'generic "borrowed params + subjects: 0.27 s" [ref=e591]'
+        - generic [ref=e592]: "0.27"
+        - 'generic "inline record fields: 0.17 s" [ref=e593]'
+        - generic [ref=e594]: "0.17"
+        - 'generic "flat record ABI, 08-21: 0.03 s" [ref=e595]'
+        - generic [ref=e596]: "0.03"
+    - generic [ref=e597]:
+      - heading "Binary trees — zig 1.4× node; memory still the loss" [level=2] [ref=e598]
+      - paragraph [ref=e599]: Build a full depth-21 binary tree four times and walk it. Millions of multi-constructor records allocated, pattern-matched, and released — the allocation benchmark, and the row that drove the most recent runtime work.
+      - generic [ref=e601]:
+        - generic [ref=e602]:
+          - generic [ref=e603]: zig
+          - generic [ref=e605]: —
+          - generic [ref=e606]: 1.03 GB
+        - generic [ref=e607]:
+          - generic [ref=e608]: node
+          - generic [ref=e610]: 0.96 s
+          - generic [ref=e611]: 756 MB
+        - generic [ref=e612]:
+          - generic [ref=e613]: erlang
+          - generic [ref=e615]: 0.46 s
+          - generic [ref=e616]: 834 MB
+      - generic [ref=e617]:
+        - paragraph [ref=e618]:
+          - strong [ref=e619]: "What changed:"
+          - text: counting allocations by shape found that half of every record this benchmark allocates — 81,920 of 163,830 — is a
+          - code [ref=e620]: Leaf
+          - text: ", a nullary constructor carrying no payload at all. A full binary tree has more leaves than internal nodes, so the majority allocation was a 120-byte heap record representing nothing. Nullary constructors are constants, so each variant now gets one immortal shared value instead. Peak memory fell from 2.0 GB to 1.03 GB, exactly the predicted half."
+        - paragraph [ref=e621]:
+          - strong [ref=e622]: "Why the time column was blank here yesterday:"
+          - text: "the figure this row published (1.07 s) stopped reproducing, and the honest move was to show a gap rather than restate a number we could not stand behind. Chasing it found a real regression: the runtime’s two environment gates — the leak check and the pooling switch — were each scanning the whole process environment"
+          - emphasis [ref=e623]: per call
+          - text: ", and both sit on the allocation path. At 16.8 million records this benchmark was spending over a billion string comparisons deciding, repeatedly, that nothing had changed. Resolving each gate once took depth 21 from 42.5 s back to 0.70 s. The ray tracer, which had drifted the same way, returned to 0.08 s with byte-identical output."
+        - paragraph [ref=e624]:
+          - strong [ref=e625]: "Still open:"
+          - text: "memory. 1.03 GB against node’s 885 MB and the BEAM’s 834 MB is the one number on this page where zig loses outright, and it is structural: a live depth-21 tree is 4.2 million"
+          - code [ref=e626]: Node
+          - text: "records at 120 bytes each. The 56-byte header is the target — a comptime name-hash tag, labels folded into the tag word, or pooling by arity — but this row is also the standing reminder to measure first: the last guess about where record cost sat was wrong by 2×."
+    - generic [ref=e627]:
+      - heading "Method" [level=2] [ref=e628]
+      - list [ref=e629]:
+        - listitem [ref=e630]:
+          - text: =>
+          - strong [ref=e631]: "Correctness before speed:"
+          - text: every workload's output is byte-diffed across targets before any timing counts — the ray tracer's PPM is md5-identical on all three; every zig run in the differential harness is also leak-checked at exit
+        - listitem [ref=e632]:
+          - text: =>
+          - strong [ref=e633]: "What runs:"
+          - text: zig as a ReleaseFast static binary; node 22 and erl (OTP 27) invoked directly on built output, no CLI wrapper in the timed path; BEAM figures are CPU time with the ~1 s VM boot excluded (wall time would flatter zig). Node’s peak-memory figures include the runtime’s own footprint, because that is what the machine actually pays — an empty node process is already ~38 MB here, so any figure below that is not measuring a real process
+        - listitem [ref=e634]:
+          - text: =>
+          - strong [ref=e635]: "How measured:"
+          - code [ref=e636]: /usr/bin/time -l
+          - text: (user CPU, peak memory footprint), best of 3, Apple M-series, compiler fork ff1fd2bcd. The shipped-artifact column is the exported binary (zig), the whole JS build tree (node) and the compiled BEAM files (erlang) — for node that includes gleam_stdlib and the prelude, without which the emitted module will not run
+        - listitem [ref=e637]:
+          - text: =>
+          - strong [ref=e638]: "Sources:"
+          - text: each benchmark is a one-file Gleam program in
+          - code [ref=e639]: examples/benchmarks/
+          - text: of the workspace repo (the ray tracer is
+          - code [ref=e640]: examples/demo/raytracer/
+          - text: ); the corpus gate (119 programs byte-identical, 0 failures, leak-clean) re-runs on every push. Experiment ledgers live in
+          - code [ref=e641]: examples/benchmarks/results.tsv
+        - listitem [ref=e642]:
+          - text: =>
+          - strong [ref=e643]: "What's NOT here:"
+          - text: no warmup games (JITs get their natural single-run behavior, same as the binary), no per-target tuning, no cherry-picked coin denominations — and when a row loses, it stays on the board
+        - listitem [ref=e644]:
+          - text: =>
+          - strong [ref=e645]: "When a number stops reproducing:"
+          - text: it gets treated as a bug until proven otherwise. The binary-trees and ray-tracer rows drifted ~40× and ~100× from their published figures; the cause was a real allocation-path regression, not a bad measurement, and both rows returned to their published values once it was fixed. A figure on this page that cannot be reproduced by the command next to it is a defect report
+      - generic [ref=e646]:
+        - generic [ref=e647]: "# after the setup on the start page, reproduce any row: cp examples/benchmarks/coin_change.gleam examples/_run/src/mainmod.gleam cd examples/_run && ../../gleam/target/debug/gleam export zig-executable --out bench /usr/bin/time -l ./bench # correctness first, always: byte-diff against the official compiler python3 examples/harness.py examples/benchmarks/coin_change.gleam"
+        - button "Copy reproduction commands" [ref=e648] [cursor=pointer]:
+          - img [ref=e649]
+      - generic [ref=e652]:
+        - link "Back to the scoreboard" [ref=e653] [cursor=pointer]:
+          - /url: index.html#bench
+          - text: Back to the scoreboard
+          - img [ref=e654]
+        - link "The harness & corpus" [ref=e656] [cursor=pointer]:
+          - /url: https://github.com/escherize/gleam-zig-workspace
+  - contentinfo [ref=e657]:
+    - generic [ref=e658]:
+      - paragraph [ref=e659]:
+        - text: gleam-zig — an unofficial Gleam → Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.
+        - text: Numbers from the run of record, 2026-08-21 — compiler fork 6fa94bd11.
+      - generic [ref=e660]:
+        - img "Gleam's Lucy" [ref=e661]
+        - img "Zig mark" [ref=e662]

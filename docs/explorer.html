@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>gleam-zig ray tracer explorer — resolution &times; bounces, measured</title>
+<title>gleam-zig ray tracer explorer, resolution &times; bounces, measured</title>
 <meta name="description" content="Turn the knobs: the same Gleam ray tracer measured across resolutions up to 8K and up to 10 reflection bounces, on zig, node, and the BEAM. Every number a real run.">
 <link rel="icon" href="assets/zig-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -192,7 +192,7 @@
   .stream-line { display: block; }
   .js-stream .stream-line { animation: stream 0.3s ease-out both; }
 
-  /* syntax accents — pink carries the source language, amber the output */
+  /* syntax accents, pink carries the source language, amber the output */
   .k  { color: var(--pink); }
   .zk { color: var(--amber); }
   .ty { color: var(--code-text); font-weight: 600; }
@@ -446,7 +446,7 @@
 <div class="shell"><main style="max-width:760px;margin:0 auto">
 <div class="hero" style="padding-top:48px;padding-bottom:0">
   <h1 class="hero-title" style="max-width:22ch">Turn the knobs.</h1>
-  <p class="hero-sub" style="margin-top:14px">The same <a href="raytracer-post.html">200-line Gleam ray tracer</a>, measured across every combination below — resolution up to 8K, up to ten reflection bounces, on all three machines. Every number you can select is a real run; where a cell would have taken a target minutes per render, it says so instead of guessing.</p>
+  <p class="hero-sub" style="margin-top:14px">The same <a href="raytracer-post.html">200-line Gleam ray tracer</a>, measured across every combination below, resolution up to 8K, up to ten reflection bounces, on all three machines. Every number you can select is a real run; where a cell would have taken a target minutes per render, it says so instead of guessing.</p>
 </div>
 
 <section style="padding-top:26px">
@@ -470,13 +470,13 @@
 
   <div class="panel bench cell"><div class="brow">
     <div class="bhead"><span class="bname" id="cell-name">320&times;240 &middot; 3 bounces</span><span class="bwhat" id="cell-px">76,800 pixels</span><span class="bwin" id="cell-win"></span></div>
-    <div class="lane zig"><span class="who">zig</span><div class="bar" id="bar-zig"></div><span class="t" id="t-zig">—</span><span class="m" id="r-zig"></span></div>
-    <div class="lane"><span class="who">node</span><div class="bar" id="bar-node"></div><span class="t" id="t-node">—</span><span class="m" id="r-node"></span></div>
-    <div class="lane"><span class="who">erlang</span><div class="bar" id="bar-erlang"></div><span class="t" id="t-erlang">—</span><span class="m" id="r-erlang"></span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" id="bar-zig"></div><span class="t" id="t-zig">, </span><span class="m" id="r-zig"></span></div>
+    <div class="lane"><span class="who">node</span><div class="bar" id="bar-node"></div><span class="t" id="t-node">, </span><span class="m" id="r-node"></span></div>
+    <div class="lane"><span class="who">erlang</span><div class="bar" id="bar-erlang"></div><span class="t" id="t-erlang">, </span><span class="m" id="r-erlang"></span></div>
   </div>
-  <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">wall time, Apple M-series, 2026-08-21 — best of 3 through 1280&times;960, single run above; zig as a ReleaseFast binary rebuilt per cell; node and erl on built output; erlang cells include ~1 s VM boot, so this page&rsquo;s erlang line sits higher than the CPU-time figures quoted elsewhere; matrix predates the flat record ABI (fbe68ae62), which lowers the zig line further</span></div>
+  <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">wall time, Apple M-series, 2026-08-21, best of 3 through 1280&times;960, single run above; zig as a ReleaseFast binary rebuilt per cell; node and erl on built output; erlang cells include ~1 s VM boot, so this page&rsquo;s erlang line sits higher than the CPU-time figures quoted elsewhere; matrix predates the flat record ABI (fbe68ae62), which lowers the zig line further</span></div>
   </div>
-  <p class="foot-note" id="coverage-note">zig is measured at every cell. node is measured up to 3840&times;2880 and erlang up to 1280&times;960 — beyond that a single BEAM render crosses into minutes, so those cells are marked "not measured" rather than extrapolated.</p>
+  <p class="foot-note" id="coverage-note">zig is measured at every cell. node is measured up to 3840&times;2880 and erlang up to 1280&times;960, beyond that a single BEAM render crosses into minutes, so those cells are marked "not measured" rather than extrapolated.</p>
 
   <div class="hero-cta" style="margin-top:30px">
     <a class="btn btn-primary" href="raytracer-post.html">The field note
@@ -488,7 +488,7 @@
 
 <footer>
   <div class="shell">
-    <p class="colophon">gleam-zig — an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
+    <p class="colophon">gleam-zig, an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
     Matrix measured 2026-08-21; harness in the workspace repo.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
@@ -529,7 +529,7 @@ function update() {
     const rate = document.getElementById("r-" + t);
     if (times[t] == null) {
       bar.style.width = "0"; bar.style.opacity = "0.25";
-      label.textContent = "—";
+      label.textContent = ", ";
       rate.textContent = "not measured";
     } else {
       bar.style.opacity = "1";

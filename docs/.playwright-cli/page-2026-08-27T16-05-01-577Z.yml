@@ -1,0 +1,606 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - link "gleam-zig, back to top" [ref=e4] [cursor=pointer]:
+      - /url: "#top"
+      - generic [ref=e5]:
+        - img "Gleam" [ref=e6]
+        - img [ref=e7]
+        - img "Zig" [ref=e9]
+      - text: gleam
+      - generic [ref=e10]: "-zig"
+    - navigation "Sections" [ref=e11]:
+      - link "start" [ref=e12] [cursor=pointer]:
+        - /url: "#start"
+      - link "vs erlang/js" [ref=e13] [cursor=pointer]:
+        - /url: "#backends"
+      - link "benchmarks" [ref=e14] [cursor=pointer]:
+        - /url: "#bench"
+      - link "runtime" [ref=e15] [cursor=pointer]:
+        - /url: "#runtime"
+      - link "verification" [ref=e16] [cursor=pointer]:
+        - /url: "#verify"
+      - link "packaging" [ref=e17] [cursor=pointer]:
+        - /url: "#packaging"
+      - link "limits" [ref=e18] [cursor=pointer]:
+        - /url: "#limits"
+      - link "GitHub" [ref=e19] [cursor=pointer]:
+        - /url: https://github.com/escherize/gleam-zig
+        - img [ref=e20]
+        - text: GitHub
+  - generic [ref=e23]:
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - heading "Write Gleam. Ship a native binary." [level=1] [ref=e26]:
+          - text: Write Gleam.
+          - text: Ship a native binary.
+        - paragraph [ref=e27]:
+          - text: gleam-zig is an unofficial backend for the Gleam compiler that emits
+          - strong [ref=e28]: readable Zig
+          - text: and builds it into a
+          - strong [ref=e29]: dependency-free static executable
+          - text: ", no VM, no garbage collector. Same parser, same type checker as official Gleam; a different machine underneath."
+        - generic [ref=e30]:
+          - link "Get started" [ref=e31] [cursor=pointer]:
+            - /url: "#start"
+            - text: Get started
+            - img [ref=e32]
+          - link "How it's verified" [ref=e34] [cursor=pointer]:
+            - /url: "#verify"
+      - group "Verification receipts" [ref=e35]:
+        - generic [ref=e36]: run of record · 2026-08-21
+        - generic [ref=e37]:
+          - generic [ref=e38]: 122/122
+          - generic [ref=e39]: corpus programs match the official compiler byte-for-byte, 0 failures, 27 classified skips
+        - generic [ref=e40]:
+          - generic [ref=e41]: 0leaks
+          - generic [ref=e42]: every corpus binary leak-checks itself at exit; one live allocation fails the run
+        - generic [ref=e43]:
+          - generic [ref=e44]: 389KB
+          - generic [ref=e45]: static ray-tracer binary, byte-identical output on erlang, javascript, and zig
+        - generic [ref=e46]:
+          - generic [ref=e47]: 6× node
+          - generic [ref=e48]:
+            - text: "string-building benchmark (200k-piece fold): 0.02 s vs node's 0.29 s,"
+            - link "all benchmarks" [ref=e49] [cursor=pointer]:
+              - /url: "#bench"
+    - figure "A Gleam function beside its emitted Zig" [ref=e50]:
+      - generic [ref=e51]:
+        - generic [ref=e52]:
+          - generic [ref=e54]: fib.gleam
+          - generic [ref=e56]: "pub fn fib(n: Int) -> Int { case n < 2 { True -> n False -> fib(n - 1) + fib(n - 2) } }"
+        - generic [ref=e57]:
+          - generic [ref=e59]: "fib.zig: emitted, verbatim"
+          - generic [ref=e61]:
+            - generic [ref=e62]: "fn @\"native$fib\"(@\"v$n\": i64) i64 {"
+            - generic [ref=e63]: const s = P.boolValue((@"v$n" < 2));
+            - generic [ref=e64]: "c0: {"
+            - generic [ref=e65]: if (!((s).bool)) break :c0;
+            - generic [ref=e66]: return @"v$n";
+            - generic [ref=e67]: "}"
+            - generic [ref=e68]: return @"native$fib"((@"v$n" -% 1))
+            - generic [ref=e69]: +% @"native$fib"((@"v$n" -% 2));
+            - generic [ref=e70]: "}"
+            - generic [ref=e71]: "// + a boxed wrapper for polymorphic callers:"
+            - generic [ref=e72]: "pub fn @\"fib\"(a: Value) Value {"
+            - generic [ref=e73]: return P.intValue(@"native$fib"((a).int));
+            - generic [ref=e74]: "}"
+      - generic [ref=e75]:
+        - text: plate 01
+        - generic [ref=e76]:
+          - text: condensed from
+          - code [ref=e77]: gleam build --target zig
+          - text: output; scalar-signature functions get a raw i64 ABI, see
+          - link "runtime" [ref=e78] [cursor=pointer]:
+            - /url: "#runtime"
+  - generic [ref=e79]:
+    - main [ref=e80]:
+      - generic [ref=e81]:
+        - heading "From a Gleam file to a native executable" [level=2] [ref=e82]
+        - paragraph [ref=e83]:
+          - text: There are no released binaries yet, you build the compiler fork from source. You need
+          - link "Rust" [ref=e84] [cursor=pointer]:
+            - /url: https://www.rust-lang.org/tools/install
+          - text: ", Python 3 (for the test harness), and ~5 minutes."
+        - generic [ref=e85]:
+          - generic [ref=e86]: "# the workspace expects sibling checkouts (compiler fork + stdlib fork) git clone https://github.com/escherize/gleam-zig-workspace workspace cd workspace git clone https://github.com/escherize/gleam-zig gleam git clone https://github.com/escherize/gleam-zig-stdlib gleam-stdlib # zig 0.16.0 is fetched automatically on first run (manual install optional, below) mkdir toolchain && cd toolchain curl -O https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz tar xf zig-aarch64-macos-0.16.0.tar.xz && cd .. export GLEAM_ZIG=$PWD/toolchain/zig-aarch64-macos-0.16.0/zig # build the compiler (this is the whole Gleam compiler, plus the zig backend) cd gleam && cargo build -p gleam && cd .."
+          - button "Copy setup commands" [ref=e87] [cursor=pointer]:
+            - img [ref=e88]
+        - paragraph [ref=e91]:
+          - strong [ref=e92]: Or skip the project entirely.
+          - text: A single
+          - code [ref=e93]: .gleam
+          - text: file exports straight to a binary, the compiler scaffolds a throwaway project around it (point
+          - code [ref=e94]: GLEAM_ZIG_STDLIB
+          - text: at the stdlib fork, or run anywhere below a
+          - code [ref=e95]: gleam-stdlib/
+          - text: "checkout):"
+        - generic [ref=e96]:
+          - generic [ref=e97]: "# write one file, get one native binary ../gleam/target/debug/gleam export zig-executable fizzbuzz.gleam ./fizzbuzz # the ray tracer's single source file works the same way, byte-identical image ../gleam/target/debug/gleam export zig-executable raytracer.gleam --out rt && ./rt > out.ppm"
+          - button "Copy bare-file commands" [ref=e98] [cursor=pointer]:
+            - img [ref=e99]
+        - paragraph [ref=e102]: "Point a Gleam project at the target and run it. The stdlib fork is a path dependency for now:"
+        - generic [ref=e103]:
+          - generic [ref=e104]: "# gleam.toml target = \"zig\" [dependencies] gleam_stdlib = { path = \"../gleam-stdlib\" }"
+          - button "Copy gleam.toml snippet" [ref=e105] [cursor=pointer]:
+            - img [ref=e106]
+        - generic [ref=e109]:
+          - generic [ref=e110]: "# run in place (debug build, every run is leak-checked at exit) ../gleam/target/debug/gleam run # or build a standalone ReleaseFast binary ../gleam/target/debug/gleam export zig-executable --out app ./app # cross-compile the same project from the same machine ../gleam/target/debug/gleam export zig-executable --target-triple x86_64-linux --out app-linux"
+          - button "Copy run and export commands" [ref=e111] [cursor=pointer]:
+            - img [ref=e112]
+        - paragraph [ref=e115]:
+          - text: On first use of a zig-target command the compiler fetches and sha256-verifies the pinned Zig 0.16.0 into gleam's cache, no setup step.
+          - code [ref=e116]: GLEAM_ZIG
+          - text: remains an explicit override (CI, hermetic setups), and a
+          - code [ref=e117]: zig
+          - text: on PATH reporting exactly 0.16.0 is used as-is.
+        - generic [ref=e118]:
+          - strong [ref=e119]: Fails loud.
+          - text: Anything the backend can't compile panics at build time with the construct named, nothing is silently mistranslated. That property is what makes the verification below meaningful.
+      - generic [ref=e120]:
+        - heading "A fourth backend, held to the official two's standard" [level=2] [ref=e121]
+        - paragraph [ref=e122]:
+          - text: Gleam officially compiles to
+          - strong [ref=e123]: Erlang
+          - text: (the BEAM) and
+          - strong [ref=e124]: JavaScript
+          - text: ". gleam-zig is an unofficial fork adding a third machine: native code, via Zig. It reuses Gleam's own front-end, the same parser and type checker, so a program that type-checks officially type-checks here. What changes is everything underneath:"
+        - table [ref=e126]:
+          - rowgroup [ref=e127]:
+            - row "→ Zig (this fork) → Erlang (BEAM) → JavaScript" [ref=e128]:
+              - columnheader [ref=e129]
+              - columnheader "→ Zig (this fork)" [ref=e130]
+              - columnheader "→ Erlang (BEAM)" [ref=e131]
+              - columnheader "→ JavaScript" [ref=e132]
+          - rowgroup [ref=e133]:
+            - row "Official? No, community fork Yes Yes" [ref=e134]:
+              - rowheader "Official?" [ref=e135]
+              - cell "No, community fork" [ref=e136]
+              - cell "Yes" [ref=e137]
+              - cell "Yes" [ref=e138]
+            - row "Runtime None. A static native binary; the \"runtime\" is a 1,161-line Zig prelude compiled in. BEAM VM node / browser + V8" [ref=e139]:
+              - rowheader "Runtime" [ref=e140]
+              - cell "None. A static native binary; the \"runtime\" is a 1,161-line Zig prelude compiled in." [ref=e141]
+              - cell "BEAM VM" [ref=e142]
+              - cell "node / browser + V8" [ref=e143]
+            - 'row "Memory No GC, compile-time reference counting (Perceus-style): the compiler inserts dup/drop, moves last uses, reuses cells in place. Debug runs prove zero leaks at exit. Per-process GC heaps V8 garbage collector" [ref=e144]':
+              - rowheader "Memory" [ref=e145]
+              - 'cell "No GC, compile-time reference counting (Perceus-style): the compiler inserts dup/drop, moves last uses, reuses cells in place. Debug runs prove zero leaks at exit." [ref=e146]'
+              - cell "Per-process GC heaps" [ref=e147]
+              - cell "V8 garbage collector" [ref=e148]
+            - row "Integers i64, wrapping. No bigint library. This genuinely diverges from the BEAM, one corpus program is skipped for exactly this. Arbitrary precision f64 (exact to 2⁵³)" [ref=e149]:
+              - rowheader "Integers" [ref=e150]
+              - cell "i64, wrapping. No bigint library. This genuinely diverges from the BEAM, one corpus program is skipped for exactly this." [ref=e151]
+              - cell "Arbitrary precision" [ref=e152]
+              - cell "f64 (exact to 2⁵³)" [ref=e153]
+            - row "Tail calls Self-calls become while loops, same as the JS target; mutual recursion is stack-bounded. Native TCO Self-calls become loops" [ref=e154]:
+              - rowheader "Tail calls" [ref=e155]
+              - cell "Self-calls become while loops, same as the JS target; mutual recursion is stack-bounded." [ref=e156]:
+                - text: Self-calls become
+                - code [ref=e157]: while
+                - text: loops, same as the JS target; mutual recursion is stack-bounded.
+              - cell "Native TCO" [ref=e158]
+              - cell "Self-calls become loops" [ref=e159]
+            - row "Concurrency OS threads + blocking TCP via gleam_native. OTP is out of scope. BEAM processes, OTP Single-threaded, async" [ref=e160]:
+              - rowheader "Concurrency" [ref=e161]
+              - cell "OS threads + blocking TCP via gleam_native. OTP is out of scope." [ref=e162]:
+                - text: OS threads + blocking TCP via
+                - code [ref=e163]: gleam_native
+                - text: . OTP is out of scope.
+              - cell "BEAM processes, OTP" [ref=e164]
+              - cell "Single-threaded, async" [ref=e165]
+            - row "Deploy artifact One file. 398 KB static binary for the ray tracer; cross-compiled with --target-triple. BEAM release + OTP install build tree + node" [ref=e166]:
+              - rowheader "Deploy artifact" [ref=e167]
+              - cell "One file. 398 KB static binary for the ray tracer; cross-compiled with --target-triple." [ref=e168]:
+                - text: One file. 398 KB static binary for the ray tracer; cross-compiled with
+                - code [ref=e169]: "--target-triple"
+                - text: .
+              - cell "BEAM release + OTP install" [ref=e170]
+              - cell "build tree + node" [ref=e171]
+        - paragraph [ref=e172]:
+          - text: "The honest headline: this target wins"
+          - strong [ref=e173]: footprint and deployment
+          - text: "on every workload but one: 6x to 49x less memory than node and the BEAM, in a single dependency-free file. The exception is binary trees, where millions of live refcounted records cost more than either garbage collector. After the unboxing, borrowing, and liveness work, it wins the compute too. The scoreboard, method and caveats included, is in"
+          - link "benchmarks" [ref=e174] [cursor=pointer]:
+            - /url: "#bench"
+          - text: .
+      - generic [ref=e175]:
+        - 'heading "Benchmarks: the same program, three machines" [level=2] [ref=e176]'
+        - paragraph [ref=e177]: Five workloads, one Gleam source each, identical output verified on every target. Bars are CPU time, drawn to scale per row, the memory column is not a tie anywhere.
+        - generic [ref=e178]:
+          - generic [ref=e179]:
+            - generic [ref=e180]:
+              - generic [ref=e181]: String building
+              - generic [ref=e182]: 200,000-piece fold, in-place append
+              - generic [ref=e183]: zig 6× node, 5× the BEAM
+            - generic [ref=e184]:
+              - generic [ref=e185]: zig
+              - generic [ref=e187]: 0.02 s
+              - generic [ref=e188]: 19 MB
+            - generic [ref=e189]:
+              - generic [ref=e190]: node
+              - generic [ref=e192]: 0.29 s
+              - generic [ref=e193]: 118 MB
+            - generic [ref=e194]:
+              - generic [ref=e195]: erlang
+              - generic [ref=e197]: 0.12 s
+              - generic [ref=e198]: 132 MB
+          - generic [ref=e199]:
+            - generic [ref=e200]:
+              - generic [ref=e201]: Dictionary
+              - generic [ref=e202]: 10,000 keys inserted, then all looked up
+              - generic [ref=e203]: zig 6× node, 10× the BEAM. HAMT
+            - generic [ref=e204]:
+              - generic [ref=e205]: zig
+              - generic [ref=e207]: 0.011 s
+              - generic [ref=e208]: 8 MB
+            - generic [ref=e209]:
+              - generic [ref=e210]: node
+              - generic [ref=e212]: 0.07 s
+              - generic [ref=e213]: 56 MB
+            - generic [ref=e214]:
+              - generic [ref=e215]: erlang
+              - generic [ref=e217]: 0.11 s
+              - generic [ref=e218]: 100 MB
+          - generic [ref=e219]:
+            - generic [ref=e220]:
+              - generic [ref=e221]: Ray tracer
+              - generic [ref=e222]: 320×240, 3 bounces, byte-identical PPM
+              - generic [ref=e223]: zig 1.9× node, 4.7× the BEAM
+            - generic [ref=e224]:
+              - generic [ref=e225]: zig
+              - generic [ref=e227]: 0.07 s
+              - generic [ref=e228]: 6 MB
+            - generic [ref=e229]:
+              - generic [ref=e230]: node
+              - generic [ref=e232]: 0.13 s
+              - generic [ref=e233]: 65 MB
+            - generic [ref=e234]:
+              - generic [ref=e235]: erlang
+              - generic [ref=e237]: 0.33 s
+              - generic [ref=e238]: 84 MB
+          - generic [ref=e239]:
+            - generic [ref=e240]:
+              - generic [ref=e241]: Coin change
+              - generic [ref=e242]: naive recursion, ~100M calls
+              - generic [ref=e243]: zig 3× node, 1.6× the BEAM
+            - generic [ref=e244]:
+              - generic [ref=e245]: zig
+              - generic [ref=e247]: 0.28 s
+              - generic [ref=e248]: 1.6 MB
+            - generic [ref=e249]:
+              - generic [ref=e250]: node
+              - generic [ref=e252]: 0.86 s
+              - generic [ref=e253]: 49 MB
+            - generic [ref=e254]:
+              - generic [ref=e255]: erlang
+              - generic [ref=e257]: 0.44 s
+              - generic [ref=e258]: 83 MB
+          - generic [ref=e259]:
+            - generic [ref=e260]:
+              - generic [ref=e261]: Vector records
+              - generic [ref=e262]: 10M record allocate/read cycles
+              - generic [ref=e263]: zig 2× the BEAM, flat record ABI
+            - generic [ref=e264]:
+              - generic [ref=e265]: zig
+              - generic [ref=e267]: 0.03 s
+              - generic [ref=e268]: 1.4 MB
+            - generic [ref=e269]:
+              - generic [ref=e270]: node
+              - generic [ref=e272]: 0.06 s
+              - generic [ref=e273]: 52 MB
+            - generic [ref=e274]:
+              - generic [ref=e275]: erlang
+              - generic [ref=e277]: 0.13 s
+              - generic [ref=e278]: 82 MB
+          - generic [ref=e279]:
+            - text: method
+            - generic [ref=e280]: CPU time (user), best of 3, Apple M-series, 2026-08-21 at 6fa94bd11, zig as a ReleaseFast static binary, node 22 and erl (OTP 27) invoked directly on built output; BEAM figures are CPU time, excluding ~1 s VM boot; outputs diffed byte-for-byte first
+        - paragraph [ref=e281]:
+          - link "Every number, opened up, full dossiers" [ref=e282] [cursor=pointer]:
+            - /url: benchmarks.html
+            - text: Every number, opened up, full dossiers
+            - img [ref=e283]
+        - paragraph [ref=e285]: "What moved the needle, in order:"
+        - list [ref=e286]:
+          - listitem [ref=e287]: => unboxed scalars and a raw native ABI
+          - listitem [ref=e288]: => record and tuple reuse with borrowed field access
+          - listitem [ref=e289]: => killing an mmap-per-allocation scratch allocator
+          - listitem [ref=e290]: => a borrowed parameter ABI
+          - listitem [ref=e291]: => capacity-tracked in-place string append
+          - listitem [ref=e292]: => per-clause last-use moves
+          - listitem [ref=e293]: "=> self-recursive borrowing: a greatest-fixpoint inference that lets recursion pass references without counting"
+          - listitem [ref=e294]: => inline field storage for small records
+          - listitem [ref=e295]: => a flat record ABI that keeps scalar records in registers
+          - listitem [ref=e296]: => a HAMT for dictionaries
+        - paragraph [ref=e297]: "Each one was verified against the full corpus under the leak gate before it landed. Every row is a win on CPU and on memory. The dictionary row was a 16x loss before the HAMT landed: an insertion-ordered assoc list against two real hash maps. It now runs in 0.011 s. The caveats that remain are semantic rather than performance: integers are i64 rather than bignums, and hash iteration order is unspecified (it now matches erlang's, where the assoc list happened to match V8's)."
+      - generic [ref=e298]:
+        - heading "Three layers, and the middle one is Gleam compiling itself" [level=2] [ref=e299]
+        - paragraph [ref=e300]: There is no VM to document. Compiled modules lean on a small prelude, the standard library is mostly Gleam source compiled by this same backend, and only a thin externals core is hand-written Zig.
+        - generic [ref=e301]:
+          - generic [ref=e302]:
+            - generic [ref=e303]:
+              - generic [ref=e304]: prelude.zig
+              - generic [ref=e305]: 1,161 lines
+            - generic [ref=e306]:
+              - text: "The whole runtime: the uniform"
+              - code [ref=e307]: Value
+              - text: union, reference counting (dup/drop, last-use moves, in-place cons reuse), lists, records, strings, bit arrays, panics, and the debug-mode leak gate. Compiled into every binary; nothing links at runtime.
+          - generic [ref=e308]:
+            - generic [ref=e309]:
+              - generic [ref=e310]: gleam_stdlib, self-hosted
+              - generic [ref=e311]: 19 modules
+            - generic [ref=e312]:
+              - text: The standard library's pure bulk,
+              - code [ref=e313]: list
+              - text: ","
+              - code [ref=e314]: result
+              - text: ","
+              - code [ref=e315]: option
+              - text: ","
+              - code [ref=e316]: order
+              - text: ","
+              - code [ref=e317]: pair
+              - text: ","
+              - code [ref=e318]: set
+              - text: ", folds and sorts and Result plumbing, is"
+              - strong [ref=e319]: Gleam source compiled by this compiler
+              - text: . It runs Gleam's actual logic, not a reimplementation.
+          - generic [ref=e320]:
+            - generic [ref=e321]:
+              - generic [ref=e322]: gleam_stdlib.zig, the externals core
+              - generic [ref=e323]: 77 fns · 660 lines
+            - generic [ref=e324]:
+              - text: "The only hand-written layer: Zig implementations of the"
+              - code [ref=e325]: "@external"
+              - text: functions the stdlib bottoms out in, string codepoints, float formatting, parsing, I/O. This is the one place a bug could be
+              - emphasis [ref=e326]: silent
+              - text: ; everything above it fails loud. Sibling forks cover
+              - code [ref=e327]: simplifile
+              - text: ","
+              - code [ref=e328]: argv
+              - text: ","
+              - code [ref=e329]: envoy
+              - text: ", and"
+              - code [ref=e330]: gleam_native
+              - text: (threads, TCP, time).
+        - heading "How values are represented" [level=3] [ref=e331]
+        - paragraph [ref=e332]:
+          - text: Every polymorphic value is one 16-byte tagged union,
+          - code [ref=e333]: Value
+          - text: ", mirroring the dynamic representation of the JS target: ints and floats inline, strings/lists/tuples/records as reference-counted pointers. Since the unboxing pass,"
+          - strong [ref=e334]: Int/Float/Bool expressions and locals skip the union entirely
+          - text: and compile to raw
+          - code [ref=e335]: i64
+          - text: /
+          - code [ref=e336]: f64
+          - text: /
+          - code [ref=e337]: bool
+          - text: ; functions whose whole signature is scalar get a native raw ABI (that's the
+          - code [ref=e338]: native$fib
+          - text: in the hero panel) plus a boxed wrapper for polymorphic callers.
+        - paragraph [ref=e339]:
+          - text: A custom type compiles to a name-tagged record, and an exhaustive
+          - code [ref=e340]: case
+          - text: compiles to sequential checks that end in
+          - code [ref=e341]: unreachable
+          - text: ", exhaustiveness is the Gleam type checker's proof, carried into the emitted code:"
+        - generic [ref=e342]:
+          - generic [ref=e343]:
+            - generic [ref=e344]:
+              - generic [ref=e346]: shape.gleam
+              - generic [ref=e348]: "pub type Shape { Circle(radius: Float) Rect(width: Float, height: Float) } pub fn area(shape: Shape) -> Float { case shape { Circle(r) -> 3.14159 *. r *. r Rect(w, h) -> w *. h } }"
+            - generic [ref=e349]:
+              - generic [ref=e351]: "shape.zig: emitted, verbatim"
+              - generic [ref=e353]: "pub fn @\"area\"(@\"v$shape\": Value) Value { const s = @\"v$shape\"; c0: { if (!(P.recordHasName(s, \"Circle\"))) break :c0; const r = P.dup((s).record.fields[0]); const out = P.floatValue( ((3.14159 * (r).float) * (r).float)); P.drop(r); P.drop(s); return out; } c1: { if (!(P.recordHasName(s, \"Rect\"))) break :c1; // … same shape for Rect … } unreachable; // exhaustiveness: the type checker's proof }"
+          - generic [ref=e354]:
+            - text: plate 02
+            - generic [ref=e355]: emitted by the fork at 765791e0d; Rect clause elided for width, otherwise verbatim
+        - paragraph [ref=e356]:
+          - text: "Worth saying plainly: variants are"
+          - strong [ref=e357]: not
+          - text: per-type Zig tagged unions, and
+          - code [ref=e358]: Result
+          - text: is
+          - strong [ref=e359]: not
+          - text: mapped to Zig error unions,
+          - code [ref=e360]: Ok
+          - text: /
+          - code [ref=e361]: Error
+          - text: are plain records like every other variant. The uniform representation is what lets one prelude serve all types; per-type unboxed layouts are future work, not current truth.
+        - generic [ref=e362]:
+          - strong [ref=e363]: "Where the memory goes:"
+          - text: the list-churn benchmark peaks at 236.7 MB with counting disabled and 2.3 MB with Perceus reference counting on, same program, same output. Release builds add object pooling; debug builds trade speed for the leak gate.
+      - generic [ref=e364]:
+        - heading "Every number on this page has an oracle" [level=2] [ref=e365]
+        - paragraph [ref=e366]:
+          - text: "The method: run every test program twice, once with the"
+          - strong [ref=e367]: official Gleam compiler
+          - text: (the JavaScript target, on node), once compiled to a native binary by this fork, and diff the normalised stdout. Pass means byte-identical; deliberate crashes must match too.
+        - 'img "Verification pipeline: one Gleam program runs through the official compiler and through this fork; outputs are diffed and the native binary is leak-checked" [ref=e368]':
+          - generic [ref=e369]:
+            - generic [ref=e370]: program.gleam
+            - generic [ref=e371]: one source
+          - img [ref=e373]
+          - generic [ref=e375]:
+            - generic [ref=e376]: official gleam → js
+            - generic [ref=e377]: the oracle, on node
+          - img [ref=e379]
+          - generic [ref=e381]:
+            - generic [ref=e382]: this fork → zig
+            - generic [ref=e383]: native binary, leak-checked
+          - img [ref=e385]
+          - generic [ref=e387]:
+            - generic [ref=e388]:
+              - img [ref=e389]
+              - text: byte-diff
+            - generic [ref=e391]: stdout must be identical
+        - heading "The corpora" [level=3] [ref=e392]
+        - list [ref=e393]:
+          - listitem [ref=e394]:
+            - text: =>
+            - strong [ref=e395]: "63"
+            - text: Rosetta Code tasks and
+            - strong [ref=e396]: "59"
+            - text: language-tour lessons pass byte-identical,
+            - strong [ref=e397]: 122 / 122
+            - text: runnable programs, 0 failures
+          - listitem [ref=e398]:
+            - text: =>
+            - strong [ref=e399]: "27"
+            - text: "skips, every one classified: 15 compile on neither target, 9 need missing hex packages, 2 need externals the target lacks, 1 hits the i64-vs-bignum divergence, skips are named, never hidden in a pass rate"
+          - listitem [ref=e400]:
+            - text: =>
+            - strong [ref=e401]: "Leak gate:"
+            - text: debug binaries count every allocation and
+            - strong [ref=e402]: exit 2 if anything is still live
+            - text: after main returns, the whole corpus runs under it
+          - listitem [ref=e403]:
+            - text: =>
+            - strong [ref=e404]: "CI:"
+            - text: the
+            - code [ref=e405]: zig-target
+            - text: workflow re-runs the corpus + leak gate on every push and pull request
+          - listitem [ref=e406]:
+            - text: =>
+            - strong [ref=e407]: 6,180
+            - text: compiler-suite tests stay green on the fork
+        - heading "The tri-target demo" [level=3] [ref=e408]
+        - paragraph [ref=e409]:
+          - text: A ~200-line ray tracer runs unchanged on all three targets and produces
+          - strong [ref=e410]: byte-identical images
+          - text: (md5
+          - code [ref=e411]: 7a452dda…
+          - text: "): native 0.07 s / 6 MB in a 389 KB binary, node 0.13 s / 65 MB, BEAM 0.33 s / 84 MB, all CPU time. Three days of optimization took the native render from 0.66 s to nearly twice V8’s speed, at a tenth of the memory. The story is written up in"
+          - link "\"A ray tracer in Gleam, but 18× faster\"" [ref=e412] [cursor=pointer]:
+            - /url: raytracer-post.html
+          - text: .
+        - generic [ref=e413]:
+          - strong [ref=e414]: "The soft spot, named:"
+          - text: the 77-function hand-written externals core is the only layer that can be silently wrong, everything else fails loud at compile time. Differential fuzzing aimed at exactly that layer has
+          - strong [ref=e415]: not run yet
+          - generic [ref=e416]: planned
+          - text: ; the corpus and the leak gate are the current evidence.
+      - generic [ref=e417]:
+        - heading "The output is Zig you can read, and import" [level=2] [ref=e418]
+        - paragraph [ref=e419]:
+          - text: A build emits one
+          - code [ref=e420]: .zig
+          - text: "file per Gleam module plus the prelude, laid out as an ordinary Zig source tree. The generated entrypoint consumes it the same way your code can:"
+        - generic [ref=e421]:
+          - generic [ref=e422]: "// what `gleam run --target zig` itself generates and runs: const std = @import(\"std\"); const P = @import(\"prelude.zig\"); const app = @import(\"my_project/app.zig\"); pub fn main(init: std.process.Init.Minimal) void { P.process_args = init.args; P.drop(app.@\"main\"()); // any pub fn: Value in, Value out P.leakCheckExit(); // debug builds only }"
+          - button "Copy entrypoint example" [ref=e423] [cursor=pointer]:
+            - img [ref=e424]
+        - list [ref=e427]:
+          - listitem [ref=e428]:
+            - text: =>
+            - strong [ref=e429]: Public functions use the boxed ABI
+            - text: ", take and return"
+            - code [ref=e430]: P.Value
+            - text: ; construct arguments with
+            - code [ref=e431]: P.intValue
+            - text: ","
+            - code [ref=e432]: P.copyString
+            - text: ", and friends from the prelude"
+          - listitem [ref=e433]:
+            - text: =>
+            - strong [ref=e434]: "Ship one file instead:"
+            - code [ref=e435]: gleam export zig-executable
+            - text: produces a static ReleaseFast binary;
+            - code [ref=e436]: "--target-triple"
+            - text: cross-compiles it. Compilation for linux x86_64/aarch64, windows, and macos is verified from one machine, the windows binaries themselves have never been run (see
+            - link "limits" [ref=e437] [cursor=pointer]:
+              - /url: "#limits"
+            - text: )
+          - listitem [ref=e438]:
+            - text: =>
+            - strong [ref=e439]: "Or ship one source file:"
+            - code [ref=e440]: gleam export zig-source
+            - text: emits the whole project, every module, the native files, the inlined runtime, and an entrypoint, as one
+            - code [ref=e441]: .zig
+            - text: file anyone can
+            - code [ref=e442]: zig run
+            - text: with no gleam installed. The ray tracer's single file produces the byte-identical image
+        - paragraph [ref=e443]:
+          - text: "Also stated plainly: there is"
+          - strong [ref=e444]: no external production consumer yet
+          - text: ", no third-party Zig project calling compiled Gleam in anger. The entrypoint above is the real, working consumption path; a packaged library story is future work."
+      - generic [ref=e445]:
+        - heading "What it is, and what it isn't" [level=2] [ref=e446]
+        - paragraph [ref=e447]:
+          - text: gleam-zig is
+          - strong [ref=e448]: experimental
+          - text: "but real: a fork of the actual Gleam compiler, a self-hosted standard library, a leak-proven memory system, and a corpus that matches the official compiler byte-for-byte. It is not a finished product, and these edges are deliberate, read them like a build log:"
+        - table "Known limits with severity" [ref=e449]:
+          - row "WARN Integers are i64 Wrapping 64-bit ints, no bigint. The one semantic divergence from the BEAM's arbitrary precision, stated here, not buried." [ref=e450]:
+            - cell "WARN" [ref=e451]
+            - cell "Integers are i64" [ref=e452]
+            - cell "Wrapping 64-bit ints, no bigint. The one semantic divergence from the BEAM's arbitrary precision, stated here, not buried." [ref=e453]
+          - row "WARN No OTP BEAM processes, supervisors, and the actor model don't exist here. gleam_native gives OS threads, sleep, and blocking TCP, for computational Gleam, not concurrent systems." [ref=e454]:
+            - cell "WARN" [ref=e455]
+            - cell "No OTP" [ref=e456]
+            - cell "BEAM processes, supervisors, and the actor model don't exist here. gleam_native gives OS threads, sleep, and blocking TCP, for computational Gleam, not concurrent systems." [ref=e457]:
+              - text: BEAM processes, supervisors, and the actor model don't exist here.
+              - code [ref=e458]: gleam_native
+              - text: gives OS threads, sleep, and blocking TCP, for computational Gleam, not concurrent systems.
+          - row "WARN Mutual recursion is stack-bounded Self tail-calls compile to loops; mutually recursive functions ride the native stack (JS-target parity)." [ref=e459]:
+            - cell "WARN" [ref=e460]
+            - cell "Mutual recursion is stack-bounded" [ref=e461]
+            - cell "Self tail-calls compile to loops; mutually recursive functions ride the native stack (JS-target parity)." [ref=e462]
+          - row "WARN Unicode is approximate Case and trim are ASCII; \"graphemes\" segment by codepoint. Real casing tables and UAX-29 need data Zig's std doesn't carry." [ref=e463]:
+            - cell "WARN" [ref=e464]
+            - cell "Unicode is approximate" [ref=e465]
+            - cell "Case and trim are ASCII; \"graphemes\" segment by codepoint. Real casing tables and UAX-29 need data Zig's std doesn't carry." [ref=e466]
+          - row "INFO Dict is O(n) An insertion-ordered assoc list, correct but linear per op; a HAMT port is the tracked fix." [ref=e467]:
+            - cell "INFO" [ref=e468]
+            - cell "Dict is O(n)" [ref=e469]
+            - cell "An insertion-ordered assoc list, correct but linear per op; a HAMT port is the tracked fix." [ref=e470]
+          - row "INFO Strings copy Construction and slicing copy buffers (a deliberate naive-RC decision); bit arrays already share buffers, strings will follow." [ref=e471]:
+            - cell "INFO" [ref=e472]
+            - cell "Strings copy" [ref=e473]
+            - cell "Construction and slicing copy buffers (a deliberate naive-RC decision); bit arrays already share buffers, strings will follow." [ref=e474]
+          - row "INFO Bit arrays are byte-aligned Sub-byte segments and utf16/32 segments are unsupported and fail loud at compile time." [ref=e475]:
+            - cell "INFO" [ref=e476]
+            - cell "Bit arrays are byte-aligned" [ref=e477]
+            - cell "Sub-byte segments and utf16/32 segments are unsupported and fail loud at compile time." [ref=e478]
+          - row "INFO Windows is untested Binaries cross-compile for windows, but argv FFI is posix-only and no CI runner exercises them." [ref=e479]:
+            - cell "INFO" [ref=e480]
+            - cell "Windows is untested" [ref=e481]
+            - cell "Binaries cross-compile for windows, but argv FFI is posix-only and no CI runner exercises them." [ref=e482]
+          - row "INFO FFI-backed packages need shims Hex packages whose externals target Erlang/JS need a small Zig implementation; pure-Gleam packages just work." [ref=e483]:
+            - cell "INFO" [ref=e484]
+            - cell "FFI-backed packages need shims" [ref=e485]
+            - cell "Hex packages whose externals target Erlang/JS need a small Zig implementation; pure-Gleam packages just work." [ref=e486]
+        - generic [ref=e487]:
+          - link "Read the source" [ref=e488] [cursor=pointer]:
+            - /url: https://github.com/escherize/gleam-zig
+            - text: Read the source
+            - img [ref=e489]
+          - link "Watch CI prove it" [ref=e491] [cursor=pointer]:
+            - /url: https://github.com/escherize/gleam-zig/actions/workflows/zig-target.yml
+    - complementary "On this page" [ref=e492]:
+      - generic [ref=e493]: on this page
+      - link "getting started" [ref=e494] [cursor=pointer]:
+        - /url: "#start"
+      - link "vs erlang / js" [ref=e495] [cursor=pointer]:
+        - /url: "#backends"
+      - link "benchmarks" [ref=e496] [cursor=pointer]:
+        - /url: "#bench"
+      - link "runtime model" [ref=e497] [cursor=pointer]:
+        - /url: "#runtime"
+      - link "verification" [ref=e498] [cursor=pointer]:
+        - /url: "#verify"
+      - link "packaging" [ref=e499] [cursor=pointer]:
+        - /url: "#packaging"
+      - link "status & limits" [ref=e500] [cursor=pointer]:
+        - /url: "#limits"
+  - contentinfo [ref=e501]:
+    - generic [ref=e502]:
+      - paragraph [ref=e503]:
+        - text: gleam-zig, an unofficial Gleam → Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.
+        - text: Numbers from the run of record, 2026-08-21, compiler fork 6fa94bd11, corpus harness in
+        - link "gleam-zig-workspace" [ref=e504] [cursor=pointer]:
+          - /url: https://github.com/escherize/gleam-zig-workspace
+        - text: .
+      - generic [ref=e505]:
+        - img "Gleam's Lucy" [ref=e506]
+        - img "Zig mark" [ref=e507]

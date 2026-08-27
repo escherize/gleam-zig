@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>gleam-zig — Gleam compiled to native binaries via Zig</title>
-<meta name="description" content="An unofficial Gleam compiler backend that emits readable Zig and builds dependency-free native binaries — no VM, no GC. Every claim verified against the official compiler as an oracle.">
+<title>gleam-zig. Gleam compiled to native binaries via Zig</title>
+<meta name="description" content="An unofficial Gleam compiler backend that emits readable Zig and builds dependency-free native binaries, no VM, no GC. Every claim verified against the official compiler as an oracle.">
 <link rel="icon" href="assets/zig-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -192,7 +192,7 @@
   .stream-line { display: block; }
   .js-stream .stream-line { animation: stream 0.3s ease-out both; }
 
-  /* syntax accents — pink carries the source language, amber the output */
+  /* syntax accents, pink carries the source language, amber the output */
   .k  { color: var(--pink); }
   .zk { color: var(--amber); }
   .ty { color: var(--code-text); font-weight: 600; }
@@ -349,19 +349,19 @@
 </head>
 <body>
 <!--
-THESIS: the docs read like the environment the audience already works in — a
-graphite console where pink is the source language and amber is the output —
+THESIS: the docs read like the environment the audience already works in, a
+graphite console where pink is the source language and amber is the output , 
 refusing the white feature-grid docs default and the all-black terminal rut.
 OWN-WORLD: graphite ground #0d1117, hairline-seam panels, Archivo + JetBrains
 Mono with tabular figures; pink #FFAFF3 (Gleam) and amber #F7A41D (Zig) used
 only as syntax-derived meaning; dashed outline = planned; log rows = limits.
 STORY: a Zig dev sees real Gleam become real emitted Zig in one panel, gets a
 copy-pasteable path to a native binary, and finds every number oracle-checked
-and dated — the skeptic leaves trusting the method, not the pitch.
+and dated, the skeptic leaves trusting the method, not the pitch.
 FIRST VIEWPORT: title-bar nav; split-ink headline; verbatim compile panel
 (fib.gleam -> native$fib) with streaming output pane as the one authored
 motion; receipts status bar of four oracle-checked numbers directly below.
-FORM: dark-first developer console — dealt challenger, chosen by the user
+FORM: dark-first developer console, dealt challenger, chosen by the user
 over the brief-pinned two-language split; seed key eaa39b89.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the
 finish review, the verdict, DESIGN.md, and every shipping raster carrying its
@@ -370,7 +370,7 @@ provenance.
 
 <div class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="#top" aria-label="gleam-zig — back to top">
+    <a class="brand" href="#top" aria-label="gleam-zig, back to top">
       <span class="glyphs">
         <img src="assets/gleam-lucy.svg" alt="Gleam">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -399,7 +399,7 @@ provenance.
   <div class="hero-grid">
     <div>
       <h1 class="hero-title">Write <span class="src">Gleam</span>.<br>Ship a <span class="out">native binary</span>.</h1>
-      <p class="hero-sub">gleam-zig is an unofficial backend for the Gleam compiler that emits <strong>readable Zig</strong> and builds it into a <strong>dependency-free static executable</strong> — no VM, no garbage collector. Same parser, same type checker as official Gleam; a different machine underneath.</p>
+      <p class="hero-sub">gleam-zig is an unofficial backend for the Gleam compiler that emits <strong>readable Zig</strong> and builds it into a <strong>dependency-free static executable</strong>, no VM, no garbage collector. Same parser, same type checker as official Gleam; a different machine underneath.</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="#start">Get started
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
@@ -408,10 +408,10 @@ provenance.
     </div>
     <div class="statusbar" role="group" aria-label="Verification receipts">
       <div class="rail-head">run of record · 2026-08-21</div>
-      <div class="stat"><div class="n">122<span class="u">/122</span></div><div class="l">corpus programs match the official compiler byte-for-byte — 0 failures, 27 classified skips</div></div>
+      <div class="stat"><div class="n">122<span class="u">/122</span></div><div class="l">corpus programs match the official compiler byte-for-byte, 0 failures, 27 classified skips</div></div>
       <div class="stat"><div class="n">0<span class="u">leaks</span></div><div class="l">every corpus binary leak-checks itself at exit; one live allocation fails the run</div></div>
       <div class="stat"><div class="n">389<span class="u">KB</span></div><div class="l">static ray-tracer binary, byte-identical output on erlang, javascript, and zig</div></div>
-      <div class="stat"><div class="n">6<span class="u">&times; node</span></div><div class="l">string-building benchmark (200k-piece fold): 0.02 s vs node's 0.29 s — <a href="#bench">all benchmarks</a></div></div>
+      <div class="stat"><div class="n">6<span class="u">&times; node</span></div><div class="l">string-building benchmark (200k-piece fold): 0.02 s vs node's 0.29 s, <a href="#bench">all benchmarks</a></div></div>
     </div>
   </div>
 
@@ -428,11 +428,11 @@ provenance.
 }</pre>
       </div>
       <div class="pane pane--out">
-        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">fib.zig — emitted, verbatim</span><span class="dot" aria-hidden="true"></span></div>
+        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">fib.zig: emitted, verbatim</span><span class="dot" aria-hidden="true"></span></div>
 <pre id="stream"><span class="stream-line"><span class="zk">fn</span> <span class="gn">@"native$fib"</span>(<span class="gn">@"v$n"</span>: <span class="ty">i64</span>) <span class="ty">i64</span> {</span><span class="stream-line">    <span class="zk">const</span> s = P.boolValue((<span class="gn">@"v$n"</span> &lt; <span class="num">2</span>));</span><span class="stream-line">    c0: {</span><span class="stream-line">        <span class="zk">if</span> (!((s).bool)) <span class="zk">break</span> :c0;</span><span class="stream-line">        <span class="zk">return</span> <span class="gn">@"v$n"</span>;</span><span class="stream-line">    }</span><span class="stream-line">    <span class="zk">return</span> <span class="gn">@"native$fib"</span>((<span class="gn">@"v$n"</span> -% <span class="num">1</span>))</span><span class="stream-line">         +% <span class="gn">@"native$fib"</span>((<span class="gn">@"v$n"</span> -% <span class="num">2</span>));</span><span class="stream-line">}</span><span class="stream-line"><span class="cm">// + a boxed wrapper for polymorphic callers:</span></span><span class="stream-line"><span class="zk">pub fn</span> <span class="fn">@"fib"</span>(a: <span class="ty">Value</span>) <span class="ty">Value</span> {</span><span class="stream-line">    <span class="zk">return</span> P.intValue(<span class="gn">@"native$fib"</span>((a).int));</span><span class="stream-line">}</span></pre>
       </div>
     </div>
-    <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">plate 01<span class="plate">condensed from <code style="background:none;padding:0">gleam build --target zig</code> output; scalar-signature functions get a raw i64 ABI — see <a href="#runtime">runtime</a></span></div>
+    <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">plate 01<span class="plate">condensed from <code style="background:none;padding:0">gleam build --target zig</code> output; scalar-signature functions get a raw i64 ABI, see <a href="#runtime">runtime</a></span></div>
   </div>
 </div>
 </div>
@@ -442,7 +442,7 @@ provenance.
 
   <section id="start">
     <h2 class="ruled">From a Gleam file to a native executable</h2>
-    <p class="lede">There are no released binaries yet — you build the compiler fork from source. You need <a href="https://www.rust-lang.org/tools/install">Rust</a>, Python 3 (for the test harness), and ~5 minutes.</p>
+    <p class="lede">There are no released binaries yet, you build the compiler fork from source. You need <a href="https://www.rust-lang.org/tools/install">Rust</a>, Python 3 (for the test harness), and ~5 minutes.</p>
     <div class="codewrap">
 <pre class="block"><span class="cm"># the workspace expects sibling checkouts (compiler fork + stdlib fork)</span>
 git clone https://github.com/escherize/gleam-zig-workspace workspace
@@ -460,13 +460,13 @@ tar xf zig-aarch64-macos-0.16.0.tar.xz &amp;&amp; <span class="pr">cd</span> ..
 <span class="pr">cd</span> gleam &amp;&amp; cargo build -p gleam &amp;&amp; <span class="pr">cd</span> ..</pre>
       <button class="copy" aria-label="Copy setup commands" data-copy>1</button>
     </div>
-    <p><strong>Or skip the project entirely.</strong> A single <code>.gleam</code> file exports straight to a binary — the compiler scaffolds a throwaway project around it (point <code>GLEAM_ZIG_STDLIB</code> at the stdlib fork, or run anywhere below a <code>gleam-stdlib/</code> checkout):</p>
+    <p><strong>Or skip the project entirely.</strong> A single <code>.gleam</code> file exports straight to a binary, the compiler scaffolds a throwaway project around it (point <code>GLEAM_ZIG_STDLIB</code> at the stdlib fork, or run anywhere below a <code>gleam-stdlib/</code> checkout):</p>
     <div class="codewrap">
 <pre class="block"><span class="cmt"># write one file, get one native binary</span>
 ../gleam/target/debug/gleam export zig-executable fizzbuzz.gleam
 ./fizzbuzz
 
-<span class="cmt"># the ray tracer's single source file works the same way — byte-identical image</span>
+<span class="cmt"># the ray tracer's single source file works the same way, byte-identical image</span>
 ../gleam/target/debug/gleam export zig-executable raytracer.gleam --out rt &amp;&amp; ./rt &gt; out.ppm</pre>
       <button class="copy" aria-label="Copy bare-file commands" data-copy></button>
     </div>
@@ -480,7 +480,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       <button class="copy" aria-label="Copy gleam.toml snippet" data-copy>2</button>
     </div>
     <div class="codewrap">
-<pre class="block"><span class="cm"># run in place (debug build — every run is leak-checked at exit)</span>
+<pre class="block"><span class="cm"># run in place (debug build, every run is leak-checked at exit)</span>
 ../gleam/target/debug/gleam run
 
 <span class="cm"># or build a standalone ReleaseFast binary</span>
@@ -491,33 +491,33 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 ../gleam/target/debug/gleam export zig-executable --target-triple x86_64-linux --out app-linux</pre>
       <button class="copy" aria-label="Copy run and export commands" data-copy>3</button>
     </div>
-    <p>On first use of a zig-target command the compiler fetches and sha256-verifies the pinned Zig 0.16.0 into gleam's cache — no setup step. <code>GLEAM_ZIG</code> remains an explicit override (CI, hermetic setups), and a <code>zig</code> on PATH reporting exactly 0.16.0 is used as-is.</p>
-    <div class="note"><strong>Fails loud.</strong> Anything the backend can't compile panics at build time with the construct named — nothing is silently mistranslated. That property is what makes the verification below meaningful.</div>
+    <p>On first use of a zig-target command the compiler fetches and sha256-verifies the pinned Zig 0.16.0 into gleam's cache, no setup step. <code>GLEAM_ZIG</code> remains an explicit override (CI, hermetic setups), and a <code>zig</code> on PATH reporting exactly 0.16.0 is used as-is.</p>
+    <div class="note"><strong>Fails loud.</strong> Anything the backend can't compile panics at build time with the construct named, nothing is silently mistranslated. That property is what makes the verification below meaningful.</div>
   </section>
 
   <section id="backends">
     <h2 class="ruled">A fourth backend, held to the official two's standard</h2>
-    <p>Gleam officially compiles to <strong>Erlang</strong> (the BEAM) and <strong>JavaScript</strong>. gleam-zig is an unofficial fork adding a third machine: native code, via Zig. It reuses Gleam's own front-end — the same parser and type checker — so a program that type-checks officially type-checks here. What changes is everything underneath:</p>
+    <p>Gleam officially compiles to <strong>Erlang</strong> (the BEAM) and <strong>JavaScript</strong>. gleam-zig is an unofficial fork adding a third machine: native code, via Zig. It reuses Gleam's own front-end, the same parser and type checker, so a program that type-checks officially type-checks here. What changes is everything underneath:</p>
     <div class="cmp-wrap">
     <table class="cmp">
       <thead><tr><th scope="col">&nbsp;</th><th scope="col">→ Zig (this fork)</th><th scope="col">→ Erlang (BEAM)</th><th scope="col">→ JavaScript</th></tr></thead>
       <tbody>
-        <tr><th scope="row">Official?</th><td class="zg">No — community fork</td><td>Yes</td><td>Yes</td></tr>
+        <tr><th scope="row">Official?</th><td class="zg">No, community fork</td><td>Yes</td><td>Yes</td></tr>
         <tr><th scope="row">Runtime</th><td class="zg">None. A static native binary; the "runtime" is a <span class="num">1,161</span>-line Zig prelude compiled in.</td><td>BEAM VM</td><td>node / browser + V8</td></tr>
-        <tr><th scope="row">Memory</th><td class="zg">No GC — compile-time reference counting (Perceus-style): the compiler inserts dup/drop, moves last uses, reuses cells in place. Debug runs prove zero leaks at exit.</td><td>Per-process GC heaps</td><td>V8 garbage collector</td></tr>
-        <tr><th scope="row">Integers</th><td class="zg">i64, wrapping. No bigint library. This genuinely diverges from the BEAM — one corpus program is skipped for exactly this.</td><td>Arbitrary precision</td><td>f64 (exact to 2⁵³)</td></tr>
+        <tr><th scope="row">Memory</th><td class="zg">No GC, compile-time reference counting (Perceus-style): the compiler inserts dup/drop, moves last uses, reuses cells in place. Debug runs prove zero leaks at exit.</td><td>Per-process GC heaps</td><td>V8 garbage collector</td></tr>
+        <tr><th scope="row">Integers</th><td class="zg">i64, wrapping. No bigint library. This genuinely diverges from the BEAM, one corpus program is skipped for exactly this.</td><td>Arbitrary precision</td><td>f64 (exact to 2⁵³)</td></tr>
         <tr><th scope="row">Tail calls</th><td class="zg">Self-calls become <code>while</code> loops, same as the JS target; mutual recursion is stack-bounded.</td><td>Native TCO</td><td>Self-calls become loops</td></tr>
         <tr><th scope="row">Concurrency</th><td class="zg">OS threads + blocking TCP via <code>gleam_native</code>. OTP is out of scope.</td><td>BEAM processes, OTP</td><td>Single-threaded, async</td></tr>
         <tr><th scope="row">Deploy artifact</th><td class="zg">One file. <span class="num">398 KB</span> static binary for the ray tracer; cross-compiled with <code>--target-triple</code>.</td><td>BEAM release + OTP install</td><td>build tree + node</td></tr>
       </tbody>
     </table>
     </div>
-    <p>The honest headline: this target wins <strong>footprint and deployment</strong> everywhere — 6–70× less memory than node/BEAM across every measured workload and a single dependency-free file — and, after the unboxing, borrowing, and liveness work, it now wins the compute too. The scoreboard, method and caveats included, is in <a href="#bench">benchmarks</a>.</p>
+    <p>The honest headline: this target wins <strong>footprint and deployment</strong> on every workload but one: 6x to 49x less memory than node and the BEAM, in a single dependency-free file. The exception is binary trees, where millions of live refcounted records cost more than either garbage collector. After the unboxing, borrowing, and liveness work, it wins the compute too. The scoreboard, method and caveats included, is in <a href="#bench">benchmarks</a>.</p>
   </section>
 
   <section id="bench">
     <h2 class="ruled">Benchmarks: the same program, three machines</h2>
-    <p class="lede">Five workloads, one Gleam source each, identical output verified on every target. Bars are CPU time, drawn to scale per row — the memory column is not a tie anywhere.</p>
+    <p class="lede">Six workloads, one Gleam source each, identical output verified on every target. Bars are CPU time, drawn to scale per row, the memory column is not a tie anywhere.</p>
     <div class="panel bench">
       <div class="brow">
         <div class="bhead"><span class="bname">String building</span><span class="bwhat">200,000-piece fold, in-place append</span><span class="bwin">zig 6&times; node, 5&times; the BEAM</span></div>
@@ -526,7 +526,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
         <div class="lane"><span class="who">erlang</span><div class="bar" style="width:41%"></div><span class="t">0.12 s</span><span class="m">132 MB</span></div>
       </div>
       <div class="brow">
-        <div class="bhead"><span class="bname">Dictionary</span><span class="bwhat">10,000 keys inserted, then all looked up</span><span class="bwin">zig 6&times; node, 10&times; the BEAM — HAMT</span></div>
+        <div class="bhead"><span class="bname">Dictionary</span><span class="bwhat">10,000 keys inserted, then all looked up</span><span class="bwin">zig 6&times; node, 10&times; the BEAM. HAMT</span></div>
         <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:10%"></div><span class="t">0.011 s</span><span class="m">8 MB</span></div>
         <div class="lane"><span class="who">node</span><div class="bar" style="width:64%"></div><span class="t">0.07 s</span><span class="m">56 MB</span></div>
         <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.11 s</span><span class="m">100 MB</span></div>
@@ -544,16 +544,29 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
         <div class="lane"><span class="who">erlang</span><div class="bar" style="width:51%"></div><span class="t">0.44 s</span><span class="m">83 MB</span></div>
       </div>
       <div class="brow">
-        <div class="bhead"><span class="bname">Vector records</span><span class="bwhat">10M record allocate/read cycles</span><span class="bwin">zig 2&times; the BEAM — flat record ABI</span></div>
+        <div class="bhead"><span class="bname">Vector records</span><span class="bwhat">10M record allocate/read cycles</span><span class="bwin">zig 2&times; the BEAM, flat record ABI</span></div>
         <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:23%"></div><span class="t">0.03 s</span><span class="m">1.4 MB</span></div>
         <div class="lane"><span class="who">node</span><div class="bar" style="width:46%"></div><span class="t">0.06 s</span><span class="m">52 MB</span></div>
         <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.13 s</span><span class="m">82 MB</span></div>
       </div>
-      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-21 at <span class="num">6fa94bd11</span> — zig as a ReleaseFast static binary, node 22 and erl (OTP 27) invoked directly on built output; BEAM figures are CPU time, excluding ~1 s VM boot; outputs diffed byte-for-byte first</span></div>
+      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-21 at <span class="num">6fa94bd11</span>, zig as a ReleaseFast static binary, node 22 and erl (OTP 27) invoked directly on built output; BEAM figures are CPU time, excluding ~1 s VM boot; outputs diffed byte-for-byte first</span></div>
     </div>
-    <p style="margin-top:18px"><a class="btn btn-primary" style="display:inline-flex" href="benchmarks.html">Every number, opened up — full dossiers
+    <p style="margin-top:18px"><a class="btn btn-primary" style="display:inline-flex" href="benchmarks.html">Every number, opened up, full dossiers
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a></p>
-    <p>What moved the needle, in order: unboxed scalars and a raw native ABI, record/tuple reuse with borrowed field access, killing an mmap-per-allocation scratch allocator, a borrowed parameter ABI, capacity-tracked in-place string append, per-clause last-use moves, self-recursive borrowing (a greatest-fixpoint inference that lets recursion pass references without counting), inline field storage for small records, and a flat record ABI that keeps scalar records in registers, and a HAMT for dictionaries — each verified against the full corpus under the leak gate before it landed. Every row is a win on CPU and on memory. The dictionary row was a 16&times; loss this morning — an insertion-ordered assoc list against two real hash maps — until the HAMT landed and took it to 0.011 s. The caveats that remain are semantic rather than performance: integers are i64 rather than bignums, and hash iteration order is unspecified (it now matches erlang's, where the assoc list happened to match V8's).</p>
+    <p>What moved the needle, in order:</p>
+    <ul class="clean">
+      <li>unboxed scalars and a raw native ABI</li>
+      <li>record and tuple reuse with borrowed field access</li>
+      <li>killing an mmap-per-allocation scratch allocator</li>
+      <li>a borrowed parameter ABI</li>
+      <li>capacity-tracked in-place string append</li>
+      <li>per-clause last-use moves</li>
+      <li>self-recursive borrowing: a greatest-fixpoint inference that lets recursion pass references without counting</li>
+      <li>inline field storage for small records</li>
+      <li>a flat record ABI that keeps scalar records in registers</li>
+      <li>a HAMT for dictionaries</li>
+    </ul>
+    <p>Each one was verified against the full corpus under the leak gate before it landed. Every row is a win on CPU and on memory. The dictionary row was a 16x loss before the HAMT landed: an insertion-ordered assoc list against two real hash maps. It now runs in 0.011 s. The caveats that remain are semantic rather than performance: integers are i64 rather than bignums, and hash iteration order is unspecified (it now matches erlang's, where the assoc list happened to match V8's).</p>
   </section>
 
   <section id="runtime">
@@ -565,18 +578,18 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
         <div class="body">The whole runtime: the uniform <code>Value</code> union, reference counting (dup/drop, last-use moves, in-place cons reuse), lists, records, strings, bit arrays, panics, and the debug-mode leak gate. Compiled into every binary; nothing links at runtime.</div>
       </div>
       <div class="panel layer">
-        <div class="panel-head"><span class="who">gleam_stdlib — self-hosted</span><span class="plate"></span><span class="badge num">19 modules</span></div>
-        <div class="body">The standard library's pure bulk — <code>list</code>, <code>result</code>, <code>option</code>, <code>order</code>, <code>pair</code>, <code>set</code>, folds and sorts and Result plumbing — is <strong>Gleam source compiled by this compiler</strong>. It runs Gleam's actual logic, not a reimplementation.</div>
+        <div class="panel-head"><span class="who">gleam_stdlib, self-hosted</span><span class="plate"></span><span class="badge num">19 modules</span></div>
+        <div class="body">The standard library's pure bulk, <code>list</code>, <code>result</code>, <code>option</code>, <code>order</code>, <code>pair</code>, <code>set</code>, folds and sorts and Result plumbing, is <strong>Gleam source compiled by this compiler</strong>. It runs Gleam's actual logic, not a reimplementation.</div>
       </div>
       <div class="panel layer">
-        <div class="panel-head"><span class="who">gleam_stdlib.zig — the externals core</span><span class="plate"></span><span class="badge num">77 fns · 660 lines</span></div>
-        <div class="body">The only hand-written layer: Zig implementations of the <code>@external</code> functions the stdlib bottoms out in — string codepoints, float formatting, parsing, I/O. This is the one place a bug could be <em>silent</em>; everything above it fails loud. Sibling forks cover <code>simplifile</code>, <code>argv</code>, <code>envoy</code>, and <code>gleam_native</code> (threads, TCP, time).</div>
+        <div class="panel-head"><span class="who">gleam_stdlib.zig, the externals core</span><span class="plate"></span><span class="badge num">77 fns · 660 lines</span></div>
+        <div class="body">The only hand-written layer: Zig implementations of the <code>@external</code> functions the stdlib bottoms out in, string codepoints, float formatting, parsing, I/O. This is the one place a bug could be <em>silent</em>; everything above it fails loud. Sibling forks cover <code>simplifile</code>, <code>argv</code>, <code>envoy</code>, and <code>gleam_native</code> (threads, TCP, time).</div>
       </div>
     </div>
 
     <h3>How values are represented</h3>
-    <p>Every polymorphic value is one 16-byte tagged union — <code>Value</code> — mirroring the dynamic representation of the JS target: ints and floats inline, strings/lists/tuples/records as reference-counted pointers. Since the unboxing pass, <strong>Int/Float/Bool expressions and locals skip the union entirely</strong> and compile to raw <code>i64</code>/<code>f64</code>/<code>bool</code>; functions whose whole signature is scalar get a native raw ABI (that's the <code>native$fib</code> in the hero panel) plus a boxed wrapper for polymorphic callers.</p>
-    <p>A custom type compiles to a name-tagged record, and an exhaustive <code>case</code> compiles to sequential checks that end in <code>unreachable</code> — exhaustiveness is the Gleam type checker's proof, carried into the emitted code:</p>
+    <p>Every polymorphic value is one 16-byte tagged union, <code>Value</code>, mirroring the dynamic representation of the JS target: ints and floats inline, strings/lists/tuples/records as reference-counted pointers. Since the unboxing pass, <strong>Int/Float/Bool expressions and locals skip the union entirely</strong> and compile to raw <code>i64</code>/<code>f64</code>/<code>bool</code>; functions whose whole signature is scalar get a native raw ABI (that's the <code>native$fib</code> in the hero panel) plus a boxed wrapper for polymorphic callers.</p>
+    <p>A custom type compiles to a name-tagged record, and an exhaustive <code>case</code> compiles to sequential checks that end in <code>unreachable</code>, exhaustiveness is the Gleam type checker's proof, carried into the emitted code:</p>
     <div class="compile" style="margin-top:18px">
       <div class="compile-grid">
         <div class="pane pane--src">
@@ -595,7 +608,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 }</pre>
         </div>
         <div class="pane pane--out">
-          <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">shape.zig — emitted, verbatim</span><span class="dot" aria-hidden="true"></span></div>
+          <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">shape.zig: emitted, verbatim</span><span class="dot" aria-hidden="true"></span></div>
 <pre><span class="zk">pub fn</span> <span class="fn">@"area"</span>(<span class="gn">@"v$shape"</span>: <span class="ty">Value</span>) <span class="ty">Value</span> {
     <span class="zk">const</span> s = <span class="gn">@"v$shape"</span>;
     c0: {
@@ -616,13 +629,13 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       </div>
       <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">plate 02<span class="plate">emitted by the fork at <span class="num">765791e0d</span>; Rect clause elided for width, otherwise verbatim</span></div>
     </div>
-    <p style="margin-top:16px">Worth saying plainly: variants are <strong>not</strong> per-type Zig tagged unions, and <code>Result</code> is <strong>not</strong> mapped to Zig error unions — <code>Ok</code>/<code>Error</code> are plain records like every other variant. The uniform representation is what lets one prelude serve all types; per-type unboxed layouts are future work, not current truth.</p>
-    <div class="note pink"><strong>Where the memory goes:</strong> the list-churn benchmark peaks at <span class="num">236.7 MB</span> with counting disabled and <span class="num">2.3 MB</span> with Perceus reference counting on — same program, same output. Release builds add object pooling; debug builds trade speed for the leak gate.</div>
+    <p style="margin-top:16px">Worth saying plainly: variants are <strong>not</strong> per-type Zig tagged unions, and <code>Result</code> is <strong>not</strong> mapped to Zig error unions, <code>Ok</code>/<code>Error</code> are plain records like every other variant. The uniform representation is what lets one prelude serve all types; per-type unboxed layouts are future work, not current truth.</p>
+    <div class="note pink"><strong>Where the memory goes:</strong> the list-churn benchmark peaks at <span class="num">236.7 MB</span> with counting disabled and <span class="num">2.3 MB</span> with Perceus reference counting on, same program, same output. Release builds add object pooling; debug builds trade speed for the leak gate.</div>
   </section>
 
   <section id="verify">
     <h2 class="ruled">Every number on this page has an oracle</h2>
-    <p class="lede">The method: run every test program twice — once with the <strong>official Gleam compiler</strong> (the JavaScript target, on node), once compiled to a native binary by this fork — and diff the normalised stdout. Pass means byte-identical; deliberate crashes must match too.</p>
+    <p class="lede">The method: run every test program twice, once with the <strong>official Gleam compiler</strong> (the JavaScript target, on node), once compiled to a native binary by this fork, and diff the normalised stdout. Pass means byte-identical; deliberate crashes must match too.</p>
     <div class="pipeline" role="img" aria-label="Verification pipeline: one Gleam program runs through the official compiler and through this fork; outputs are diffed and the native binary is leak-checked">
       <div class="pnode pnode--src"><div class="t">program.gleam</div><div class="s">one source</div></div>
       <div class="plink"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -634,19 +647,19 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
     </div>
     <h3>The corpora</h3>
     <ul class="clean">
-      <li><strong class="num">63</strong> Rosetta Code tasks and <strong class="num">59</strong> language-tour lessons pass byte-identical — <strong class="num">122 / 122</strong> runnable programs, 0 failures</li>
-      <li><strong class="num">27</strong> skips, every one classified: 15 compile on neither target, 9 need missing hex packages, 2 need externals the target lacks, 1 hits the i64-vs-bignum divergence — skips are named, never hidden in a pass rate</li>
-      <li><strong>Leak gate:</strong> debug binaries count every allocation and <strong>exit 2 if anything is still live</strong> after main returns — the whole corpus runs under it</li>
+      <li><strong class="num">63</strong> Rosetta Code tasks and <strong class="num">59</strong> language-tour lessons pass byte-identical, <strong class="num">122 / 122</strong> runnable programs, 0 failures</li>
+      <li><strong class="num">27</strong> skips, every one classified: 15 compile on neither target, 9 need missing hex packages, 2 need externals the target lacks, 1 hits the i64-vs-bignum divergence, skips are named, never hidden in a pass rate</li>
+      <li><strong>Leak gate:</strong> debug binaries count every allocation and <strong>exit 2 if anything is still live</strong> after main returns, the whole corpus runs under it</li>
       <li><strong>CI:</strong> the <code>zig-target</code> workflow re-runs the corpus + leak gate on every push and pull request</li>
       <li><strong class="num">6,180</strong> compiler-suite tests stay green on the fork</li>
     </ul>
     <h3>The tri-target demo</h3>
-    <p>A ~200-line ray tracer runs unchanged on all three targets and produces <strong>byte-identical images</strong> (md5 <code class="num">7a452dda…</code>): native <span class="num">0.07 s / 6 MB</span> in a <span class="num">389 KB</span> binary, node <span class="num">0.13 s / 65 MB</span>, BEAM <span class="num">0.33 s / 84 MB</span> — all CPU time. Three days of optimization took the native render from 0.66 s to nearly twice V8&rsquo;s speed, at a tenth of the memory. The story is written up in <a href="raytracer-post.html">"A ray tracer in Gleam, but 18&times; faster"</a>.</p>
-    <div class="note"><strong>The soft spot, named:</strong> the 77-function hand-written externals core is the only layer that can be silently wrong — everything else fails loud at compile time. Differential fuzzing aimed at exactly that layer has <strong>not run yet</strong> <span class="planned">planned</span>; the corpus and the leak gate are the current evidence.</div>
+    <p>A ~200-line ray tracer runs unchanged on all three targets and produces <strong>byte-identical images</strong> (md5 <code class="num">7a452dda…</code>): native <span class="num">0.07 s / 6 MB</span> in a <span class="num">389 KB</span> binary, node <span class="num">0.13 s / 65 MB</span>, BEAM <span class="num">0.33 s / 84 MB</span>, all CPU time. Three days of optimization took the native render from 0.66 s to nearly twice V8&rsquo;s speed, at a tenth of the memory. The story is written up in <a href="raytracer-post.html">"A ray tracer in Gleam, but 18&times; faster"</a>.</p>
+    <div class="note"><strong>The soft spot, named:</strong> the 77-function hand-written externals core is the only layer that can be silently wrong, everything else fails loud at compile time. Differential fuzzing aimed at exactly that layer has <strong>not run yet</strong> <span class="planned">planned</span>; the corpus and the leak gate are the current evidence.</div>
   </section>
 
   <section id="packaging">
-    <h2 class="ruled">The output is Zig you can read — and import</h2>
+    <h2 class="ruled">The output is Zig you can read, and import</h2>
     <p>A build emits one <code>.zig</code> file per Gleam module plus the prelude, laid out as an ordinary Zig source tree. The generated entrypoint consumes it the same way your code can:</p>
     <div class="codewrap">
 <pre class="block"><span class="cm">// what `gleam run --target zig` itself generates and runs:</span>
@@ -662,19 +675,19 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       <button class="copy" aria-label="Copy entrypoint example" data-copy>4</button>
     </div>
     <ul class="clean">
-      <li><strong>Public functions use the boxed ABI</strong> — take and return <code>P.Value</code>; construct arguments with <code>P.intValue</code>, <code>P.copyString</code>, and friends from the prelude</li>
-      <li><strong>Ship one file instead:</strong> <code>gleam export zig-executable</code> produces a static ReleaseFast binary; <code>--target-triple</code> cross-compiles it. Compilation for linux x86_64/aarch64, windows, and macos is verified from one machine — the windows binaries themselves have never been run (see <a href="#limits">limits</a>)</li>
-      <li><strong>Or ship one source file:</strong> <code>gleam export zig-source</code> emits the whole project — every module, the native files, the inlined runtime, and an entrypoint — as one <code>.zig</code> file anyone can <code>zig run</code> with no gleam installed. The ray tracer's single file produces the byte-identical image</li>
+      <li><strong>Public functions use the boxed ABI</strong>, take and return <code>P.Value</code>; construct arguments with <code>P.intValue</code>, <code>P.copyString</code>, and friends from the prelude</li>
+      <li><strong>Ship one file instead:</strong> <code>gleam export zig-executable</code> produces a static ReleaseFast binary; <code>--target-triple</code> cross-compiles it. Compilation for linux x86_64/aarch64, windows, and macos is verified from one machine, the windows binaries themselves have never been run (see <a href="#limits">limits</a>)</li>
+      <li><strong>Or ship one source file:</strong> <code>gleam export zig-source</code> emits the whole project, every module, the native files, the inlined runtime, and an entrypoint, as one <code>.zig</code> file anyone can <code>zig run</code> with no gleam installed. The ray tracer's single file produces the byte-identical image</li>
     </ul>
-    <p>Also stated plainly: there is <strong>no external production consumer yet</strong> — no third-party Zig project calling compiled Gleam in anger. The entrypoint above is the real, working consumption path; a packaged library story is future work.</p>
+    <p>Also stated plainly: there is <strong>no external production consumer yet</strong>, no third-party Zig project calling compiled Gleam in anger. The entrypoint above is the real, working consumption path; a packaged library story is future work.</p>
   </section>
 
   <section id="limits">
     <h2 class="ruled">What it is, and what it isn't</h2>
-    <p>gleam-zig is <strong>experimental</strong> but real: a fork of the actual Gleam compiler, a self-hosted standard library, a leak-proven memory system, and a corpus that matches the official compiler byte-for-byte. It is not a finished product, and these edges are deliberate — read them like a build log:</p>
+    <p>gleam-zig is <strong>experimental</strong> but real: a fork of the actual Gleam compiler, a self-hosted standard library, a leak-proven memory system, and a corpus that matches the official compiler byte-for-byte. It is not a finished product, and these edges are deliberate, read them like a build log:</p>
     <div class="panel limits" role="table" aria-label="Known limits with severity">
-      <div class="row" role="row"><span class="sev warn" role="cell">WARN</span><span class="what" role="cell">Integers are i64</span><span class="why" role="cell">Wrapping 64-bit ints, no bigint. The one semantic divergence from the BEAM's arbitrary precision — stated here, not buried.</span></div>
-      <div class="row" role="row"><span class="sev warn" role="cell">WARN</span><span class="what" role="cell">No OTP</span><span class="why" role="cell">BEAM processes, supervisors, and the actor model don't exist here. <code>gleam_native</code> gives OS threads, sleep, and blocking TCP — for computational Gleam, not concurrent systems.</span></div>
+      <div class="row" role="row"><span class="sev warn" role="cell">WARN</span><span class="what" role="cell">Integers are i64</span><span class="why" role="cell">Wrapping 64-bit ints, no bigint. The one semantic divergence from the BEAM's arbitrary precision, stated here, not buried.</span></div>
+      <div class="row" role="row"><span class="sev warn" role="cell">WARN</span><span class="what" role="cell">No OTP</span><span class="why" role="cell">BEAM processes, supervisors, and the actor model don't exist here. <code>gleam_native</code> gives OS threads, sleep, and blocking TCP, for computational Gleam, not concurrent systems.</span></div>
       <div class="row" role="row"><span class="sev warn" role="cell">WARN</span><span class="what" role="cell">Mutual recursion is stack-bounded</span><span class="why" role="cell">Self tail-calls compile to loops; mutually recursive functions ride the native stack (JS-target parity).</span></div>
       <div class="row" role="row"><span class="sev warn" role="cell">WARN</span><span class="what" role="cell">Unicode is approximate</span><span class="why" role="cell">Case and trim are ASCII; "graphemes" segment by codepoint. Real casing tables and UAX-29 need data Zig's std doesn't carry.</span></div>
       <div class="row" role="row"><span class="sev info" role="cell">INFO</span><span class="what" role="cell">Dict is O(n)</span><span class="why" role="cell">An insertion-ordered assoc list, correct but linear per op; a HAMT port is the tracked fix.</span></div>
@@ -705,8 +718,8 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 
 <footer>
   <div class="shell">
-    <p class="colophon">gleam-zig — an unofficial Gleam → Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">6fa94bd11</b>, corpus harness in <a href="https://github.com/escherize/gleam-zig-workspace">gleam-zig-workspace</a>.</p>
+    <p class="colophon">gleam-zig, an unofficial Gleam → Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
+    Numbers from the run of record, <b>2026-08-21</b>, compiler fork <b class="num">6fa94bd11</b>, corpus harness in <a href="https://github.com/escherize/gleam-zig-workspace">gleam-zig-workspace</a>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">

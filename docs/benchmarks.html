@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>gleam-zig benchmarks — five workloads, three machines, every number explained</title>
-<meta name="description" content="The full dossiers behind the gleam-zig benchmark scoreboard: source, emitted code, per-optimization history, and method for five workloads across zig, node, and the BEAM.">
+<title>gleam-zig benchmarks: six workloads, three targets, every number explained</title>
+<meta name="description" content="The full dossiers behind the gleam-zig benchmark scoreboard: source, emitted code, per-optimization history, and method for six workloads across zig, node, and the BEAM.">
 <link rel="icon" href="assets/zig-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -199,7 +199,7 @@
   .stream-line { display: block; }
   .js-stream .stream-line { animation: stream 0.3s ease-out both; }
 
-  /* syntax accents — pink carries the source language, amber the output */
+  /* syntax accents, pink carries the source language, amber the output */
   .k  { color: var(--pink); }
   .zk { color: var(--amber); }
   .ty { color: var(--code-text); font-weight: 600; }
@@ -476,7 +476,7 @@
 </head>
 <body>
 <!--
-THESIS: the scoreboard's dossier page — every number on the front page opened
+THESIS: the scoreboard's dossier page, every number on the front page opened
 up to its source, its emitted code, and the dated optimization that produced
 it; the reader leaves able to re-run everything.
 OWN-WORLD: the site's dark console (graphite #0d1117, hairline seams, Archivo
@@ -488,7 +488,7 @@ the same care as wins.
 FIRST VIEWPORT: title + one-line thesis; the time-vs-memory log-log scatter
 with zig's five amber dots bottom-left; ship strip under it; sticky mini-nav
 of the five dossiers begins.
-FORM: expanded scoreboard (dossier-per-benchmark) — the dealt lead structure,
+FORM: expanded scoreboard (dossier-per-benchmark), the dealt lead structure,
 locked by the user; seed key 57e5429a. Code-led.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the
 finish review, the verdict, DESIGN.md, and every shipping raster carrying its
@@ -702,7 +702,7 @@ provenance.
 <div class="shell"><main style="max-width:860px">
 
 <section class="dossier" id="d-string">
-  <h2>String building <span class="verdict">— zig 28&times; node, 11&times; the BEAM</span></h2>
+  <h2>String building <span class="verdict">zig 28&times; node, 11&times; the BEAM</span></h2>
   <p class="lede" style="margin-top:14px">200,000 pieces folded onto one accumulator. The workload every templater, serializer, and logger is secretly made of.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:4%"></div><span class="t">0.01 s</span><span class="m">19 MB</span></div>
@@ -719,7 +719,7 @@ provenance.
   })</pre>
       </div>
       <div class="pane pane--out">
-        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">the hot path — runtime, in-place append</span><span class="dot" aria-hidden="true"></span></div>
+        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">the hot path: runtime, in-place append</span><span class="dot" aria-hidden="true"></span></div>
 <pre><span class="cm">// acc reaches here with refcount 1, so:</span>
 <span class="zk">if</span> (need &lt;= have) {
     <span class="cm">// room in the buffer: just write</span>
@@ -732,7 +732,7 @@ provenance.
       </div>
     </div>
   </div>
-  <div class="prose"><p><strong>Why it's fast:</strong> two pieces had to land together. The runtime tracks buffer capacity in the string header and appends in place when the left operand is unshared — but that only fires if the accumulator actually <em>reaches</em> the append with refcount 1. <code>list.fold</code> uses its accumulator once in each of two case clauses, which naive analysis reads as two uses. Per-clause liveness (only one clause runs) approves the transfer, the refcount stays 1, and 200k appends become an amortized-linear write instead of 200k full copies. Node's string concat is rope-optimized and still loses 6&times;.</p></div>
+  <div class="prose"><p><strong>Why it's fast:</strong> two pieces had to land together. The runtime tracks buffer capacity in the string header and appends in place when the left operand is unshared, but that only fires if the accumulator actually <em>reaches</em> the append with refcount 1. <code>list.fold</code> uses its accumulator once in each of two case clauses, which naive analysis reads as two uses. Per-clause liveness (only one clause runs) approves the transfer, the refcount stays 1, and 200k appends become an amortized-linear write instead of 200k full copies. Node's string concat is rope-optimized and still loses 6&times;.</p></div>
 <div class="history stairs-wrap">
   <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
     <line class="sgrid" x1="46" y1="78.2" x2="640" y2="78.2"/>
@@ -753,15 +753,15 @@ provenance.
 </section>
 
 <section class="dossier" id="d-dict">
-  <h2>Dictionary <span class="verdict">— zig 7&times; node, 11&times; the BEAM</span></h2>
-  <p class="lede" style="margin-top:14px">Ten thousand keys inserted into a map, then every one looked up again. The workload every real program does — indexing data — and the worst thing this target currently does.</p>
+  <h2>Dictionary <span class="verdict">zig 7&times; node, 11&times; the BEAM</span></h2>
+  <p class="lede" style="margin-top:14px">Ten thousand keys inserted into a map, then every one looked up again. The workload every real program does: indexing data.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:2%"></div><span class="t">&lt;0.01 s</span><span class="m">7 MB</span></div>
     <div class="lane"><span class="who">node</span><div class="bar" style="width:64%"></div><span class="t">0.07 s</span><span class="m">78 MB</span></div>
     <div class="lane"><span class="who">erlang</span><div class="bar" style="width:100%"></div><span class="t">0.11 s</span><span class="m">87 MB</span></div>
   </div></div>
-  <div class="prose"><p><strong>How it was won:</strong> until this row appeared on the board, <code>gleam/dict</code> on this target was an insertion-ordered association list — every <code>insert</code> scanned for an existing key and every <code>get</code> scanned to find one, so the workload was O(n&sup2;) against two real hash maps. No codegen work could have rescued that; it was a data structure that had not been written. It is now a hash array mapped trie, the same structure the JavaScript target uses: five hash bits per level, 32-way branching, so a lookup touches three or four nodes and an insert copies one node per level instead of the whole dict.</p>
-  <p>The nodes are ordinary reference-counted values, so the runtime's existing memory discipline covers the trie with no new lifetime rules — the leak gate checks it on every corpus run like everything else. One semantic consequence, stated plainly: iteration order is hash order now rather than insertion order. That order was always unspecified and differs on all three targets; the new one happens to agree with erlang where the old one happened to agree with V8.</p></div>
+  <div class="prose"><p><strong>How it was won:</strong> until this row appeared on the board, <code>gleam/dict</code> on this target was an insertion-ordered association list, every <code>insert</code> scanned for an existing key and every <code>get</code> scanned to find one, so the workload was O(n&sup2;) against two real hash maps. No codegen work could have rescued that; it was a data structure that had not been written. It is now a hash array mapped trie, the same structure the JavaScript target uses: five hash bits per level, 32-way branching, so a lookup touches three or four nodes and an insert copies one node per level instead of the whole dict.</p>
+  <p>The nodes are ordinary reference-counted values, so the runtime's existing memory discipline covers the trie with no new lifetime rules, the leak gate checks it on every corpus run like everything else. One semantic consequence, stated plainly: iteration order is hash order now rather than insertion order. That order was always unspecified and differs on all three targets; the new one happens to agree with erlang where the old one happened to agree with V8.</p></div>
 <div class="history stairs-wrap">
   <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
     <line class="sgrid" x1="46" y1="98.9" x2="640" y2="98.9"/>
@@ -780,8 +780,8 @@ provenance.
 </section>
 
 <section class="dossier" id="d-ray">
-  <h2>Ray tracer <span class="verdict">— zig 2&times; node, byte-identical output</span></h2>
-  <p class="lede" style="margin-top:14px">The tri-target demo: 320&times;240, three bounces, and the PPM output is md5-identical on all three machines — this row is also a correctness proof.</p>
+  <h2>Ray tracer <span class="verdict">zig 2&times; node, byte-identical output</span></h2>
+  <p class="lede" style="margin-top:14px">The tri-target demo: 320&times;240, three bounces, and the PPM output is md5-identical on all three machines, this row is also a correctness proof.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:24%"></div><span class="t">0.08 s</span><span class="m">6 MB</span></div>
     <div class="lane"><span class="who">node</span><div class="bar" style="width:52%"></div><span class="t">0.17 s</span><span class="m">33 MB</span></div>
@@ -790,7 +790,7 @@ provenance.
   <div class="compile" style="margin-top:18px">
     <div class="compile-grid">
       <div class="pane pane--src">
-        <div class="pane-head"><img src="assets/gleam-lucy.svg" alt=""><span class="lang">the hot shape — vec math</span><span class="dot" aria-hidden="true"></span></div>
+        <div class="pane-head"><img src="assets/gleam-lucy.svg" alt=""><span class="lang">the hot shape: vec math</span><span class="dot" aria-hidden="true"></span></div>
 <pre><span class="k">fn</span> <span class="fn">dot</span>(a: <span class="ty">Vec</span>, b: <span class="ty">Vec</span>) -&gt; <span class="ty">Float</span> {
   a.x *. b.x
   +. a.y *. b.y
@@ -798,7 +798,7 @@ provenance.
 }</pre>
       </div>
       <div class="pane pane--out">
-        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">emitted — borrowed reads, no refcounts</span><span class="dot" aria-hidden="true"></span></div>
+        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">emitted: borrowed reads, no refcounts</span><span class="dot" aria-hidden="true"></span></div>
 <pre><span class="zk">fn</span> <span class="gn">borrowed$dot</span>(a: <span class="ty">Value</span>, b: <span class="ty">Value</span>) <span class="ty">Value</span> {
     <span class="zk">return</span> P.floatValue(
         ((a).record.fields[<span class="num">0</span>]).float * ((b).record.fields[<span class="num">0</span>]).float
@@ -809,7 +809,7 @@ provenance.
     </div>
   </div>
   <p style="margin-top:14px"><a href="explorer.html">Turn the knobs</a>: this render measured across resolutions to 8K and bounces to 10.</p>
-  <div class="prose"><p><strong>Why it's fast — eventually:</strong> this number took six optimizations and one wrong diagnosis. The hot path is <code>Vec</code> record math; the wins came from borrowed field reads (no refcount round-trip per <code>v.x</code>), in-place record reuse in pattern-matched constructions, a borrowed parameter ABI for the vector helpers, and — the day's embarrassment — discovering that a third of the runtime was 230,000 <code>mmap</code> syscalls from a scratch allocator, misdiagnosed the previous night as "output writes". Inline field storage for small records closed the final gap past V8.</p></div>
+  <div class="prose"><p><strong>Why it's fast, eventually:</strong> this number took six optimizations and one wrong diagnosis. The hot path is <code>Vec</code> record math; the wins came from borrowed field reads (no refcount round-trip per <code>v.x</code>), in-place record reuse in pattern-matched constructions, a borrowed parameter ABI for the vector helpers, and, the day's embarrassment, discovering that a third of the runtime was 230,000 <code>mmap</code> syscalls from a scratch allocator, misdiagnosed the previous night as "output writes". Inline field storage for small records closed the final gap past V8.</p></div>
 <div class="history stairs-wrap">
   <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
     <line class="sgrid" x1="46" y1="82.5" x2="640" y2="82.5"/>
@@ -832,8 +832,8 @@ provenance.
 </section>
 
 <section class="dossier" id="d-coin">
-  <h2>Coin change <span class="verdict">— zig 7&times; node, 3&times; the BEAM</span></h2>
-  <p class="lede" style="margin-top:14px">Naive recursive counting, ~100 million calls — list pattern-matching and recursion, the BEAM's home turf. It was a loss row until self-recursive borrowing.</p>
+  <h2>Coin change <span class="verdict">zig 7&times; node, 3&times; the BEAM</span></h2>
+  <p class="lede" style="margin-top:14px">Naive recursive counting, ~100 million calls, list pattern-matching and recursion, the BEAM's home turf. It was a loss row until self-recursive borrowing.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:14%"></div><span class="t">0.12 s</span><span class="m">1.2 MB</span></div>
     <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.84 s</span><span class="m">49 MB</span></div>
@@ -855,7 +855,7 @@ provenance.
 }</pre>
       </div>
       <div class="pane pane--out">
-        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">emitted, condensed — zero refcount ops</span><span class="dot" aria-hidden="true"></span></div>
+        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">emitted, condensed: zero refcount ops</span><span class="dot" aria-hidden="true"></span></div>
 <pre><span class="zk">fn</span> <span class="gn">borrowed$ways</span>(amount, coins: <span class="ty">Value</span>) <span class="ty">Value</span> {
     <span class="zk">if</span> (amount.int == <span class="num">0</span>) <span class="zk">return</span> one;   <span class="cm">// raw guard</span>
     <span class="zk">if</span> (amount.int &lt; <span class="num">0</span>)  <span class="zk">return</span> zero;
@@ -868,7 +868,7 @@ provenance.
       </div>
     </div>
   </div>
-  <div class="prose"><p><strong>Why it flipped:</strong> borrow inference runs to a greatest fixpoint — recursion is allowed to justify its own borrows, which is sound because call frames nest inside the outermost owner's lifetime. With <code>coins</code> passing itself down borrowed and <code>rest</code> borrowing the list spine out of the subject, the recursion performs <em>zero reference-count operations per call</em>. That took it from 2.53 s (three days ago) through five separate optimizations to 0.28 s — past the BEAM JIT that owned this row.</p></div>
+  <div class="prose"><p><strong>Why it flipped:</strong> borrow inference runs to a greatest fixpoint, recursion is allowed to justify its own borrows, which is sound because call frames nest inside the outermost owner's lifetime. With <code>coins</code> passing itself down borrowed and <code>rest</code> borrowing the list spine out of the subject, the recursion performs <em>zero reference-count operations per call</em>. That took it from 2.53 s (three days ago) through five separate optimizations to 0.28 s, past the BEAM JIT that owned this row.</p></div>
 <div class="history stairs-wrap">
   <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
     <line class="sgrid" x1="46" y1="101.4" x2="640" y2="101.4"/>
@@ -893,8 +893,8 @@ provenance.
 </section>
 
 <section class="dossier" id="d-vec">
-  <h2>Vector records <span class="verdict">— fastest of all three targets</span></h2>
-  <p class="lede" style="margin-top:14px">Ten million iterations of allocate-two-records, read-six-fields — pure allocation churn, kept as the honest stress test of the memory system.</p>
+  <h2>Vector records <span class="verdict">fastest of all three targets</span></h2>
+  <p class="lede" style="margin-top:14px">Ten million iterations of allocate-two-records, read-six-fields, pure allocation churn, kept as the honest stress test of the memory system.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
     <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:23%"></div><span class="t">0.03 s</span><span class="m">1.2 MB</span></div>
     <div class="lane"><span class="who">node</span><div class="bar" style="width:38%"></div><span class="t">0.05 s</span><span class="m">50 MB</span></div>
@@ -908,7 +908,7 @@ provenance.
 <span class="fn">loop</span>(n - <span class="num">1</span>, v, acc +. <span class="fn">dot</span>(w, w) *. <span class="num">0.000001</span>)</pre>
       </div>
       <div class="pane pane--out">
-        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">emitted — the allocations that remain</span><span class="dot" aria-hidden="true"></span></div>
+        <div class="pane-head"><img src="assets/zig-mark.svg" alt=""><span class="lang">emitted: the allocations that remain</span><span class="dot" aria-hidden="true"></span></div>
 <pre><span class="zk">const</span> w = bc: {
     <span class="cm">// scale allocates a pooled Vec (fields inline)</span>
     <span class="zk">const</span> t = <span class="gn">borrowed$scale</span>(v, P.floatValue(<span class="num">0.5</span>));
@@ -920,7 +920,7 @@ provenance.
       </div>
     </div>
   </div>
-  <div class="prose"><p><strong>Why it stopped losing:</strong> the JITs escape-analyze these temporaries into registers, so for weeks this row was the honest loss on the board. The flat record ABI answers it directly: a single-constructor record whose fields are all scalars now travels as a zig struct inside its module, so <code>add</code>/<code>scale</code>/<code>dot</code> compile to register arithmetic with no allocation at all — 0.17 s to 0.03 s, past both JITs. What stays boxed is what the rule excludes: multi-constructor types, records holding strings or lists, anything generic.</p></div>
+  <div class="prose"><p><strong>Why it stopped losing:</strong> the JITs escape-analyze these temporaries into registers, so for weeks this row was the honest loss on the board. The flat record ABI answers it directly: a single-constructor record whose fields are all scalars now travels as a zig struct inside its module, so <code>add</code>/<code>scale</code>/<code>dot</code> compile to register arithmetic with no allocation at all, 0.17 s to 0.03 s, past both JITs. What stays boxed is what the rule excludes: multi-constructor types, records holding strings or lists, anything generic.</p></div>
 <div class="history stairs-wrap">
   <svg class="stairs" viewBox="0 0 660 128" role="img" aria-label="Optimization history: user CPU time stepping down across experiments. Hover each step for what changed.">
     <line class="sgrid" x1="46" y1="59.8" x2="640" y2="59.8"/>
@@ -940,26 +940,26 @@ provenance.
 
 
 <section class="dossier" id="d-tree">
-  <h2>Binary trees <span class="verdict">— zig 1.4&times; node; memory still the loss</span></h2>
-  <p class="lede" style="margin-top:14px">Build a full depth-21 binary tree four times and walk it. Millions of multi-constructor records allocated, pattern-matched, and released — the allocation benchmark, and the row that drove the most recent runtime work.</p>
+  <h2>Binary trees <span class="verdict">zig 1.4&times; node; memory still the loss</span></h2>
+  <p class="lede" style="margin-top:14px">Build a full depth-21 binary tree four times and walk it. Millions of multi-constructor records allocated, pattern-matched, and released, the allocation benchmark, and the row that drove the most recent runtime work.</p>
   <div class="panel bench" style="margin-top:16px"><div class="brow">
-    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:52%"></div><span class="t">—</span><span class="m">1.03 GB</span></div>
+    <div class="lane zig"><span class="who">zig</span><div class="bar" style="width:52%"></div><span class="t">, </span><span class="m">1.03 GB</span></div>
     <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.96 s</span><span class="m">756 MB</span></div>
     <div class="lane"><span class="who">erlang</span><div class="bar" style="width:48%"></div><span class="t">0.46 s</span><span class="m">834 MB</span></div>
   </div></div>
-  <div class="prose"><p><strong>What changed:</strong> counting allocations by shape found that half of every record this benchmark allocates — 81,920 of 163,830 — is a <code>Leaf</code>, a nullary constructor carrying no payload at all. A full binary tree has more leaves than internal nodes, so the majority allocation was a 120-byte heap record representing nothing. Nullary constructors are constants, so each variant now gets one immortal shared value instead. Peak memory fell from 2.0 GB to 1.03 GB, exactly the predicted half.</p>
-  <p><strong>Why the time column was blank here yesterday:</strong> the figure this row published (1.07&nbsp;s) stopped reproducing, and the honest move was to show a gap rather than restate a number we could not stand behind. Chasing it found a real regression: the runtime’s two environment gates — the leak check and the pooling switch — were each scanning the whole process environment <em>per call</em>, and both sit on the allocation path. At 16.8&nbsp;million records this benchmark was spending over a billion string comparisons deciding, repeatedly, that nothing had changed. Resolving each gate once took depth 21 from 42.5&nbsp;s back to 0.70&nbsp;s. The ray tracer, which had drifted the same way, returned to 0.08&nbsp;s with byte-identical output.</p><p><strong>Still open:</strong> memory. 1.03&nbsp;GB against node’s 885&nbsp;MB and the BEAM’s 834&nbsp;MB is the one number on this page where zig loses outright, and it is structural: a live depth-21 tree is 4.2&nbsp;million <code>Node</code> records at 120&nbsp;bytes each. The 56-byte header is the target — a comptime name-hash tag, labels folded into the tag word, or pooling by arity — but this row is also the standing reminder to measure first: the last guess about where record cost sat was wrong by 2&times;.</p></div>
+  <div class="prose"><p><strong>What changed:</strong> counting allocations by shape found that half of every record this benchmark allocates, 81,920 of 163,830, is a <code>Leaf</code>, a nullary constructor carrying no payload at all. A full binary tree has more leaves than internal nodes, so the majority allocation was a 120-byte heap record representing nothing. Nullary constructors are constants, so each variant now gets one immortal shared value instead. Peak memory fell from 2.0 GB to 1.03 GB, exactly the predicted half.</p>
+  <p><strong>What this row cost to get right:</strong> the figure published here (1.07&nbsp;s) stopped reproducing, and chasing that found a real regression. The runtime’s two environment gates, the leak check and the pooling switch, were each scanning the whole process environment per call, and both sit on the allocation path. At 16.8&nbsp;million records this benchmark spent over a billion string comparisons deciding, repeatedly, that nothing had changed. Resolving each gate once took depth 21 from 42.5&nbsp;s to 0.70&nbsp;s. The ray tracer, which had drifted the same way, returned to 0.08&nbsp;s with byte-identical output.</p><p><strong>Still open:</strong> memory. 1.03&nbsp;GB against node’s 885&nbsp;MB and the BEAM’s 834&nbsp;MB is the one number on this page where zig loses outright, and it is structural: a live depth-21 tree is 4.2&nbsp;million <code>Node</code> records at 120&nbsp;bytes each. The 56-byte header is the target, a comptime name-hash tag, labels folded into the tag word, or pooling by arity, but this row is also the standing reminder to measure first: the last guess about where record cost sat was wrong by 2&times;.</p></div>
 </section>
 
 
 <section class="dossier" id="method">
   <h2>Method</h2>
   <ul class="clean" style="margin-top:16px">
-    <li><strong>Correctness before speed:</strong> every workload's output is byte-diffed across targets before any timing counts — the ray tracer's PPM is md5-identical on all three; every zig run in the differential harness is also leak-checked at exit</li>
-    <li><strong>What runs:</strong> zig as a ReleaseFast static binary; node 22 and erl (OTP 27) invoked directly on built output, no CLI wrapper in the timed path; BEAM figures are CPU time with the ~1&nbsp;s VM boot excluded (wall time would flatter zig). Node’s peak-memory figures include the runtime’s own footprint, because that is what the machine actually pays — an empty node process is already ~38&nbsp;MB here, so any figure below that is not measuring a real process</li>
-    <li><strong>How measured:</strong> <code>/usr/bin/time -l</code> (user CPU, peak memory footprint), best of 3, Apple M-series, compiler fork <span class="num">ff1fd2bcd</span>. The shipped-artifact column is the exported binary (zig), the whole JS build tree (node) and the compiled BEAM files (erlang) — for node that includes gleam_stdlib and the prelude, without which the emitted module will not run</li>
+    <li><strong>Correctness before speed:</strong> every workload's output is byte-diffed across targets before any timing counts, the ray tracer's PPM is md5-identical on all three; every zig run in the differential harness is also leak-checked at exit</li>
+    <li><strong>What runs:</strong> zig as a ReleaseFast static binary; node 22 and erl (OTP 27) invoked directly on built output, no CLI wrapper in the timed path; BEAM figures are CPU time with the ~1&nbsp;s VM boot excluded (wall time would flatter zig). Node’s peak-memory figures include the runtime’s own footprint, because that is what the machine actually pays, an empty node process is already ~38&nbsp;MB here, so any figure below that is not measuring a real process</li>
+    <li><strong>How measured:</strong> <code>/usr/bin/time -l</code> (user CPU, peak memory footprint), best of 3, Apple M-series, compiler fork <span class="num">ff1fd2bcd</span>. The shipped-artifact column is the exported binary (zig), the whole JS build tree (node) and the compiled BEAM files (erlang), for node that includes gleam_stdlib and the prelude, without which the emitted module will not run</li>
     <li><strong>Sources:</strong> each benchmark is a one-file Gleam program in <code>examples/benchmarks/</code> of the workspace repo (the ray tracer is <code>examples/demo/raytracer/</code>); the corpus gate (119 programs byte-identical, 0 failures, leak-clean) re-runs on every push. Experiment ledgers live in <code>examples/benchmarks/results.tsv</code></li>
-    <li><strong>What's NOT here:</strong> no warmup games (JITs get their natural single-run behavior, same as the binary), no per-target tuning, no cherry-picked coin denominations — and when a row loses, it stays on the board</li>
+    <li><strong>What's NOT here:</strong> no warmup games (JITs get their natural single-run behavior, same as the binary), no per-target tuning, no cherry-picked coin denominations, and when a row loses, it stays on the board</li>
     <li><strong>When a number stops reproducing:</strong> it gets treated as a bug until proven otherwise. The binary-trees and ray-tracer rows drifted ~40&times; and ~100&times; from their published figures; the cause was a real allocation-path regression, not a bad measurement, and both rows returned to their published values once it was fixed. A figure on this page that cannot be reproduced by the command next to it is a defect report</li>
   </ul>
   <div class="codewrap">
@@ -982,8 +982,8 @@ python3 examples/harness.py examples/benchmarks/coin_change.gleam</pre>
 
 <footer>
   <div class="shell">
-    <p class="colophon">gleam-zig — an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers from the run of record, <b>2026-08-21</b> — compiler fork <b class="num">6fa94bd11</b>.</p>
+    <p class="colophon">gleam-zig, an unofficial Gleam &rarr; Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
+    Numbers from the run of record, <b>2026-08-21</b>, compiler fork <b class="num">6fa94bd11</b>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">
