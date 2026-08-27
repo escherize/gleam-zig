@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>gleam-zig benchmarks: six workloads, three targets, every number explained</title>
+<title>gleam-zig benchmarks: six workloads, three targets, sources and method</title>
 <meta name="description" content="The full dossiers behind the gleam-zig benchmark scoreboard: source, emitted code, per-optimization history, and method for six workloads across zig, node, and the BEAM.">
 <link rel="icon" href="assets/zig-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -402,8 +402,8 @@
   .scatter.is-grouping [data-bench] { opacity: 0.16; }
   .scatter.is-grouping [data-bench].in-group { opacity: 1; }
   .scatter.is-grouping [data-bench].in-group:not(.is-active) { stroke: var(--dim); stroke-width: 1; }
-  .scatter .group-link { stroke: var(--seam); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0; transition: opacity .12s ease; }
-  .scatter.is-grouping .group-link { opacity: 1; }
+  .scatter .group-link { stroke: var(--dim); stroke-width: 1.5; stroke-dasharray: 5 4; stroke-linecap: round; opacity: 0; transition: opacity .12s ease; }
+  .scatter.is-grouping .group-link { opacity: 0.8; }
   .scatter .quadrant { fill: var(--green); opacity: 0.045; }
   .scatter .quadrant-label { font-family: var(--font-mono); font-size: 10px; fill: var(--green); opacity: 0.6; }
   @media (prefers-reduced-motion: reduce) {
@@ -414,7 +414,10 @@
   .dot-tip {
     position: absolute; z-index: 5; pointer-events: none;
     min-width: 190px; max-width: 250px; padding: 9px 11px;
-    background: var(--elevated); border: 1px solid var(--seam); border-radius: 6px;
+    background: color-mix(in srgb, var(--elevated) 20%, transparent);
+    backdrop-filter: saturate(1.2) blur(10px);
+    -webkit-backdrop-filter: saturate(1.2) blur(10px);
+    border: 1px solid var(--seam); border-radius: 6px;
     font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: var(--dim);
     opacity: 0; transform: translateY(2px); transition: opacity .09s ease, transform .09s ease;
   }
@@ -503,7 +506,7 @@
 
 <div class="shell">
 <div class="hero" style="padding-top:36px;padding-bottom:8px">
-  <h1 class="hero-title" style="max-width:26ch">Every number, opened up.</h1>
+  <h1 class="hero-title" style="max-width:26ch">Where every number comes from.</h1>
   <p class="hero-sub" style="margin-top:12px">Each front-page number, opened to its Gleam source, the Zig it emits, and the optimizations that produced it. One plot carries the argument:</p>
 
     <div class="panel scatter-wrap">
