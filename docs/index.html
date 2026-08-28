@@ -413,7 +413,7 @@
 <pre id="stream"><span class="stream-line"><span class="zk">fn</span> <span class="gn">@"native$fib"</span>(<span class="gn">@"v$n"</span>: <span class="ty">i64</span>) <span class="ty">i64</span> {</span><span class="stream-line">    <span class="zk">const</span> s = P.boolValue((<span class="gn">@"v$n"</span> &lt; <span class="num">2</span>));</span><span class="stream-line">    c0: {</span><span class="stream-line">        <span class="zk">if</span> (!((s).bool)) <span class="zk">break</span> :c0;</span><span class="stream-line">        <span class="zk">return</span> <span class="gn">@"v$n"</span>;</span><span class="stream-line">    }</span><span class="stream-line">    <span class="zk">return</span> <span class="gn">@"native$fib"</span>((<span class="gn">@"v$n"</span> -% <span class="num">1</span>))</span><span class="stream-line">         +% <span class="gn">@"native$fib"</span>((<span class="gn">@"v$n"</span> -% <span class="num">2</span>));</span><span class="stream-line">}</span><span class="stream-line"><span class="cm">// + a boxed wrapper for polymorphic callers:</span></span><span class="stream-line"><span class="zk">pub fn</span> <span class="fn">@"fib"</span>(a: <span class="ty">Value</span>) <span class="ty">Value</span> {</span><span class="stream-line">    <span class="zk">return</span> P.intValue(<span class="gn">@"native$fib"</span>((a).int));</span><span class="stream-line">}</span></pre>
       </div>
     </div>
-    <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">plate 01<span class="plate">condensed from <code style="background:none;padding:0">gleam build --target zig</code> output; scalar-signature functions get a raw i64 ABI, see <a href="#runtime">runtime</a></span></div>
+    <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">plate 01<span class="plate">condensed from <code style="background:none;padding:0">gleam build --target zig</code> output: locals are shown without their <code style="background:none;padding:0">v$</code>/<code style="background:none;padding:0">s$</code>/<code style="background:none;padding:0">r$</code> prefixes, and the second clause's guarded block, the terminal <code style="background:none;padding:0">unreachable</code>, and the <code style="background:none;padding:0">P.drop</code> that releases the scrutinee are all elided for width. Plate 02 shows that structure intact. Scalar-signature functions get a raw i64 ABI, see <a href="#runtime">runtime</a></span></div>
   </div>
 </div>
 </div>
@@ -496,12 +496,12 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       </tbody>
     </table>
     </div>
-    <p>The honest headline: this target wins <strong>footprint and deployment</strong> on every measured workload, using 1.5x to 69x less memory than node and the BEAM, in a single dependency-free file. The spread is wide because it depends on how much the program keeps alive: coin change and vector records finish near 1.2&nbsp;MB against 49&nbsp;to&nbsp;83&nbsp;MB, while binary trees holds millions of live refcounted tree cells and wins by only 1.5x. After the unboxing, borrowing, and liveness work, it wins the compute too. The scoreboard, method and caveats included, is in <a href="#bench">benchmarks</a>.</p>
+    <p>The honest headline: this target wins <strong>footprint and deployment</strong> on every measured workload, using 1.46x to 69x less memory than node and the BEAM, in a single dependency-free file. Read the top of that range carefully: peak memory includes each runtime's own resident cost, and an empty node process is already ~38&nbsp;MB against an empty BEAM VM's ~83&nbsp;MB. Coin change finishes in 1.2&nbsp;MB against a BEAM figure that is essentially all VM, so 69x is mostly the runtime you do not ship. The bottom of the range is the honest one: binary trees holds millions of live refcounted tree cells and still wins, by 1.46x. After the unboxing, borrowing, and liveness work, it wins the compute too. The scoreboard, method and caveats included, is in <a href="#bench">benchmarks</a>.</p>
   </section>
 
   <section id="bench">
     <h2 class="ruled">Benchmarks: the same program, three machines</h2>
-    <p class="lede">Six workloads, one Gleam source each, identical output verified on every target. Bars are CPU time, drawn to scale per row, the memory column is not a tie anywhere.</p>
+    <p class="lede">Six workloads, one Gleam source each, output verified against the other targets before any timing counts. The dictionary row is the exception: it imports <code>gleam/dict</code>, whose iteration order is unspecified, so it is checked on a clean exit rather than a diff. Bars are CPU time, drawn to scale per row, the memory column is not a tie anywhere.</p>
     <div class="panel bench">
       <div class="brow">
         <div class="bhead"><span class="bname">String building</span><span class="bwhat">200,000-piece fold, in-place append</span><span class="bwin">zig 28&times; node, 11&times; the BEAM</span></div>
@@ -539,7 +539,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
         <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.96 s</span><span class="m">756 MB</span></div>
         <div class="lane"><span class="who">erlang</span><div class="bar" style="width:67%"></div><span class="t">0.64 s</span><span class="m">747 MB</span></div>
       </div>
-      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-27 at <span class="num">c6b902177</span>, zig as a ReleaseFast static binary, node 22 and erl (OTP 28) invoked directly on built output; BEAM figures are CPU time; VM boot is 0.08 s on OTP 28; outputs diffed byte-for-byte first</span></div>
+      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-27 at <span class="num">c6b902177</span>, zig as a ReleaseFast static binary, node 22 and erl (OTP 28) invoked directly on built output; BEAM figures are CPU time; VM boot is 0.08 s on OTP 28; outputs compared against the javascript target first</span></div>
     </div>
     <p style="margin-top:18px"><a class="btn btn-primary" style="display:inline-flex" href="benchmarks.html">See where every number comes from
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a></p>
@@ -556,7 +556,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       <li>a flat record ABI that keeps scalar records in registers</li>
       <li>a HAMT for dictionaries</li>
     </ul>
-    <p>Each one was verified against the full corpus under the leak gate before it landed. Every row is now a win on CPU and on memory, binary trees included, though that is the narrowest margin at 1.5x. The dictionary row was a 16x loss before the HAMT landed: an insertion-ordered assoc list against two real hash maps. It now finishes in under 0.01 s. The caveats that remain are semantic rather than performance: integers are i64 rather than bignums, and hash iteration order is unspecified (it now matches erlang's, where the assoc list happened to match V8's).</p>
+    <p>Each one was verified against the full corpus under the leak gate before it landed. Every row is now a win on CPU and on memory, binary trees included, though that is the narrowest margin at 1.46x. The dictionary row was a 16x loss before the HAMT landed: an insertion-ordered assoc list against two real hash maps. It now finishes in under 0.01 s. The caveats that remain are semantic rather than performance: integers are i64 rather than bignums, and hash iteration order is unspecified (it now matches erlang's, where the assoc list happened to match V8's).</p>
   </section>
 
   <section id="runtime">
