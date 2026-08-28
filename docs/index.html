@@ -425,7 +425,8 @@
     <h2 class="ruled">From a Gleam file to a native executable</h2>
     <p class="lede">There are no released binaries yet, you build the compiler fork from source. You need <a href="https://www.rust-lang.org/tools/install">Rust</a>, Python 3 and Node.js (the harness diffs against the JavaScript target, so node is the oracle), and ~5 minutes.</p>
     <div class="codewrap">
-<pre class="block"><span class="cm"># the workspace expects sibling checkouts (compiler fork + stdlib fork)</span>
+<pre class="block"><span class="cm"># the workspace expects sibling checkouts (compiler fork, stdlib fork, and
+# two more the test harness needs)</span>
 git clone https://github.com/escherize/gleam-zig-workspace workspace
 <span class="pr">cd</span> workspace
 git clone https://github.com/escherize/gleam-zig gleam
@@ -446,11 +447,11 @@ git clone --depth 1 https://github.com/gleam-lang/language-tour tour
     </div>
     <p><strong>Or skip the project entirely.</strong> A single <code>.gleam</code> file exports straight to a binary, the compiler scaffolds a throwaway project around it (point <code>GLEAM_ZIG_STDLIB</code> at the stdlib fork, or run anywhere below a <code>gleam-stdlib/</code> checkout):</p>
     <div class="codewrap">
-<pre class="block"><span class="cmt"># write one file, get one native binary</span>
+<pre class="block"><span class="cm"># write one file, get one native binary</span>
 ../gleam/target/debug/gleam export zig-executable fizzbuzz.gleam
 ./fizzbuzz
 
-<span class="cmt"># the ray tracer's single source file works the same way, byte-identical image</span>
+<span class="cm"># the ray tracer's single source file works the same way, byte-identical image</span>
 ../gleam/target/debug/gleam export zig-executable raytracer.gleam --out rt &amp;&amp; ./rt &gt; out.ppm</pre>
       <button class="copy" aria-label="Copy bare-file commands" data-copy></button>
     </div>

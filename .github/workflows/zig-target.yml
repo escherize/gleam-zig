@@ -12,6 +12,11 @@ on:
     branches: ["zig-target"]
   pull_request:
     branches: ["zig-target"]
+  schedule:
+    # Weekly, for the setup-block job below: it clones from the network and
+    # builds from scratch, so it is too slow to gate a push, but the failure
+    # it catches (a reader cannot reproduce the page) is silent otherwise.
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 env:
@@ -96,6 +101,24 @@ jobs:
       # useful on a bare checkout of this repo alone.
       - name: Check the docs against the repo and themselves
         run: python3 docs/check-claims.py --verbose
+
+  # Can a reader actually follow the getting-started block? Checking numbers
+  # never answers that. An audit found the block cloned two repositories where
+  # four are needed, so following the page produced a checkout where not one
+  # corpus program could resolve, while the page cited that corpus as its
+  # headline receipt. This runs the page's own text in a clean container.
+  #
+  # Weekly and on demand rather than per-push: it pulls from the network and
+  # builds the compiler from scratch.
+  setup-block:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the page's setup block in a clean container
+        run: docs/check-setup-block.sh
 
   compiler-tests:
     runs-on: ubuntu-latest
