@@ -423,7 +423,7 @@
 
   <section id="start">
     <h2 class="ruled">From a Gleam file to a native executable</h2>
-    <p class="lede">There are no released binaries yet, you build the compiler fork from source. You need <a href="https://www.rust-lang.org/tools/install">Rust</a>, Python 3 (for the test harness), and ~5 minutes.</p>
+    <p class="lede">There are no released binaries yet, you build the compiler fork from source. You need <a href="https://www.rust-lang.org/tools/install">Rust</a>, Python 3 and Node.js (the harness diffs against the JavaScript target, so node is the oracle), and ~5 minutes.</p>
     <div class="codewrap">
 <pre class="block"><span class="cm"># the workspace expects sibling checkouts (compiler fork + stdlib fork)</span>
 git clone https://github.com/escherize/gleam-zig-workspace workspace
@@ -501,7 +501,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 
   <section id="bench">
     <h2 class="ruled">Benchmarks: the same program, three machines</h2>
-    <p class="lede">Six workloads, one Gleam source each, output verified against the other targets before any timing counts. The dictionary row is the exception: it imports <code>gleam/dict</code>, whose iteration order is unspecified, so it is checked on a clean exit rather than a diff. Bars are CPU time, drawn to scale per row, the memory column is not a tie anywhere.</p>
+    <p class="lede">Six workloads, one Gleam source each, output verified against the javascript target before any timing counts. The dictionary row is the exception: it imports <code>gleam/dict</code>, whose iteration order is unspecified, so it is checked on a clean exit rather than a diff. Bars are CPU time, drawn to scale per row, the memory column is not a tie anywhere.</p>
     <div class="panel bench">
       <div class="brow">
         <div class="bhead"><span class="bname">String building</span><span class="bwhat">200,000-piece fold, in-place append</span><span class="bwin">zig 28&times; node, 11&times; the BEAM</span></div>
@@ -539,7 +539,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
         <div class="lane"><span class="who">node</span><div class="bar" style="width:100%"></div><span class="t">0.96 s</span><span class="m">756 MB</span></div>
         <div class="lane"><span class="who">erlang</span><div class="bar" style="width:67%"></div><span class="t">0.64 s</span><span class="m">747 MB</span></div>
       </div>
-      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-27 at <span class="num">c6b902177</span>, zig as a ReleaseFast static binary, node 22 and erl (OTP 28) invoked directly on built output; BEAM figures are CPU time; VM boot is 0.08 s on OTP 28; outputs compared against the javascript target first</span></div>
+      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">method<span class="plate">CPU time (user), best of 3, Apple M-series, 2026-08-27 at <span class="num">6556638da</span>, zig as a ReleaseFast static binary, node 22 and erl (OTP 28) invoked directly on built output; BEAM figures are CPU time; VM boot is 0.08 s on OTP 28; outputs compared against the javascript target first</span></div>
     </div>
     <p style="margin-top:18px"><a class="btn btn-primary" style="display:inline-flex" href="benchmarks.html">See where every number comes from
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a></p>
@@ -623,7 +623,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 }</pre>
         </div>
       </div>
-      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">plate 02<span class="plate">emitted by the fork at <span class="num">c6b902177</span>; the Rect clause body is elided for width, otherwise verbatim</span></div>
+      <div class="panel-head" style="border-bottom:none;border-top:1px solid var(--seam-soft)">plate 02<span class="plate">emitted by the fork at <span class="num">6556638da</span>; the Rect clause body is elided for width, otherwise verbatim</span></div>
     </div>
     <p style="margin-top:16px">Worth saying plainly: variants are <strong>not</strong> per-type Zig tagged unions, and <code>Result</code> is <strong>not</strong> mapped to Zig error unions, <code>Ok</code>/<code>Error</code> are plain records like every other variant. The uniform representation is what lets one prelude serve all types; per-type unboxed layouts are future work, not current truth.</p>
     <div class="note pink"><strong>Where the memory goes:</strong> the list-churn benchmark peaks at <span class="num">236.7 MB</span> with counting disabled and <span class="num">2.3 MB</span> with Perceus reference counting on, same program, same output. Release builds add object pooling; debug builds trade speed for the leak gate.</div>
@@ -716,7 +716,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 <footer>
   <div class="shell">
     <p class="colophon">gleam-zig, an unofficial Gleam → Zig compiler fork. Not affiliated with the Gleam core team or the Zig Software Foundation.<br>
-    Numbers from the run of record, <b>2026-08-27</b>, compiler fork <b class="num">c6b902177</b>, corpus harness in <a href="https://github.com/escherize/gleam-zig-workspace">gleam-zig-workspace</a>.</p>
+    Numbers from the run of record, <b>2026-08-27</b>, compiler fork <b class="num">6556638da</b>, corpus harness in <a href="https://github.com/escherize/gleam-zig-workspace">gleam-zig-workspace</a>.</p>
     <span class="glyphs">
       <img src="assets/gleam-lucy.svg" alt="Gleam's Lucy">
       <img src="assets/zig-mark.svg" alt="Zig mark">
