@@ -80,6 +80,23 @@ jobs:
           HARNESS_TIMEOUT: "60"
         run: python3 examples/harness.py tour/src/content examples/rosetta
 
+  # Published numbers drift silently: they are true when written and go stale
+  # when the code moves underneath them. One audit found a benchmark figure
+  # rendered three ways on one page, where the stale one would have reversed
+  # the page's own conclusion. This job is seconds long and needs no build, so
+  # it gates every push rather than waiting for someone to notice.
+  docs-claims:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # The stdlib fork is a sibling in the workspace layout. Without it the
+      # externals counts are skipped rather than failed, so this job stays
+      # useful on a bare checkout of this repo alone.
+      - name: Check the docs against the repo and themselves
+        run: python3 docs/check-claims.py --verbose
+
   compiler-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 60
