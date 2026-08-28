@@ -389,7 +389,7 @@
     </div>
     <div class="statusbar" role="group" aria-label="Verification receipts">
       <div class="rail-head">run of record · 2026-08-27</div>
-      <div class="stat"><div class="n">119<span class="u">/119</span></div><div class="l">corpus programs match the official compiler, 0 failures, 30 classified skips; byte-for-byte except where output order is unspecified</div></div>
+      <div class="stat"><div class="n">119<span class="u">/119</span></div><div class="l">corpus programs match the official compiler, 0 failures, 30 classified skips; outputs diffed after normalisation, and the dict, set and random programs are held to a clean exit instead</div></div>
       <div class="stat"><div class="n">0<span class="u">leaks</span></div><div class="l">every corpus binary leak-checks itself at exit; one live allocation fails the run. The gate turns object pooling off, so these runs prove the unpooled allocator</div></div>
       <div class="stat"><div class="n">411<span class="u">KB</span></div><div class="l">static ray-tracer binary; it renders the same image, pixel for pixel, as the erlang and javascript builds</div></div>
       <div class="stat"><div class="n">28<span class="u">&times; node</span></div><div class="l">string-building benchmark (200k-piece fold): 0.01 s vs node's 0.28 s, <a href="#bench">all benchmarks</a></div></div>
@@ -488,7 +488,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
       <tbody>
         <tr><th scope="row">Official?</th><td class="zg">No, community fork</td><td>Yes</td><td>Yes</td></tr>
         <tr><th scope="row">Runtime</th><td class="zg">None. A static native binary; the "runtime" is a <span class="num">1,481</span>-line Zig prelude compiled in.</td><td>BEAM VM</td><td>node / browser + V8</td></tr>
-        <tr><th scope="row">Memory</th><td class="zg">No GC, compile-time reference counting (Perceus-style): the compiler inserts dup/drop, moves last uses, reuses cells in place. Debug runs prove zero leaks at exit.</td><td>Per-process GC heaps</td><td>V8 garbage collector</td></tr>
+        <tr><th scope="row">Memory</th><td class="zg">No GC, compile-time reference counting (Perceus-style): the compiler inserts dup/drop, moves last uses, reuses cells in place. Debug runs prove zero leaks at exit for the unpooled allocator.</td><td>Per-process GC heaps</td><td>V8 garbage collector</td></tr>
         <tr><th scope="row">Integers</th><td class="zg">i64, wrapping. No bigint library. This genuinely diverges from the BEAM, one corpus program is skipped for exactly this.</td><td>Arbitrary precision</td><td>f64 (exact to 2⁵³)</td></tr>
         <tr><th scope="row">Tail calls</th><td class="zg">Self-calls become <code>while</code> loops, same as the JS target; mutual recursion is stack-bounded.</td><td>Native TCO</td><td>Self-calls become loops</td></tr>
         <tr><th scope="row">Concurrency</th><td class="zg">OS threads + blocking TCP via <code>gleam_native</code>. OTP is out of scope.</td><td>BEAM processes, OTP</td><td>Single-threaded, async</td></tr>
@@ -631,7 +631,7 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
 
   <section id="verify">
     <h2 class="ruled">Every number on this page has an oracle</h2>
-    <p class="lede">The method: run every test program twice, once with the <strong>official Gleam compiler</strong> (the JavaScript target, on node), once compiled to a native binary by this fork, and diff the normalised stdout. Pass means byte-identical, and deliberate crashes must match too. The exception is programs whose output has no defined order, the ones using <code>gleam/dict</code>, <code>gleam/set</code>, or randomness: hash iteration order is unspecified per target, so those are held to a clean exit instead of a byte diff.</p>
+    <p class="lede">The method: run every test program twice, once with the <strong>official Gleam compiler</strong> (the JavaScript target, on node), once compiled to a native binary by this fork, and diff the normalised stdout: ANSI stripped, source line references collapsed, trailing whitespace dropped. Pass means identical after that. Three cases are held to a weaker check, each because a byte diff would be meaningless rather than because it is inconvenient. Programs using <code>gleam/dict</code>, <code>gleam/set</code>, or randomness have no defined output order, so they need only a clean exit. Programs that fail on both targets are compared on the outcome alone, since panic text differs per runtime. Programs that run forever by design pass when both targets time out.</p>
     <div class="pipeline" role="img" aria-label="Verification pipeline: one Gleam program runs through the official compiler and through this fork; outputs are diffed and the native binary is leak-checked">
       <div class="pnode pnode--src"><div class="t">program.gleam</div><div class="s">one source</div></div>
       <div class="plink"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -643,15 +643,15 @@ gleam_stdlib = { path = <span class="st">"../gleam-stdlib"</span> }</pre>
     </div>
     <h3>The corpora</h3>
     <ul class="clean">
-      <li><strong class="num">60</strong> Rosetta Code tasks and <strong class="num">59</strong> language-tour lessons pass byte-identical, <strong class="num">119 / 119</strong> runnable programs, 0 failures</li>
+      <li><strong class="num">60</strong> Rosetta Code tasks and <strong class="num">59</strong> language-tour lessons match the official compiler, <strong class="num">119 / 119</strong> runnable programs, 0 failures; 7 of them are held to a clean exit rather than a diff, because their output order is unspecified</li>
       <li><strong class="num">30</strong> skips, every one classified: 15 compile on neither target, 9 need missing hex packages, 3 run forever by design so there is nothing to diff, 2 need externals the target lacks, 1 hits the i64-vs-bignum divergence, skips are named, never hidden in a pass rate</li>
-      <li><strong>Leak gate:</strong> debug binaries count every allocation and <strong>exit 2 if anything is still live</strong> after main returns, the whole corpus runs under it</li>
+      <li><strong>Leak gate:</strong> debug binaries count every allocation and <strong>exit 2 if anything is still live</strong> after main returns, the whole corpus runs under it. The gate disables object pooling, so what it proves is the unpooled allocator; the pooled path that release builds use needs <code>HARNESS_LEAK_GATE=0</code> and forgoes the check. That gap is how a record free-list bug once survived every corpus run</li>
       <li><strong>CI:</strong> the <code>zig-target</code> workflow re-runs the corpus + leak gate on every push and pull request to the <code>zig-target</code> branch</li>
       <li><strong class="num">3,645</strong> compiler-suite tests stay green on the fork</li>
     </ul>
     <h3>The tri-target demo</h3>
     <p>A ~200-line ray tracer runs unchanged on all three targets and produces <strong>byte-identical images</strong> (md5 <code class="num">7a452dda…</code>): native <span class="num">0.08 s / 5.7 MB</span> in a <span class="num">411 KB</span> binary, node <span class="num">0.17 s / 66 MB</span>, BEAM <span class="num">0.35 s / 83 MB</span>, all CPU time. Three days of optimization took the native render from 0.66 s to nearly twice V8&rsquo;s speed, at a tenth of the memory. The story is written up in <a href="raytracer-post.html">"A ray tracer in Gleam, but 4.7&times; faster"</a>.</p>
-    <div class="note"><strong>The soft spot, named:</strong> the 77-function hand-written externals core is the only layer that can be silently wrong, everything else fails loud at compile time. Differential fuzzing aimed at exactly that layer has <strong>not run yet</strong> <span class="planned">planned</span>; the corpus and the leak gate are the current evidence.</div>
+    <div class="note"><strong>The soft spot, named:</strong> the 98-function hand-written externals core is the only layer that can be silently wrong, everything else fails loud at compile time. Differential fuzzing aimed at exactly that layer has <strong>not run yet</strong> <span class="planned">planned</span>; the corpus and the leak gate are the current evidence.</div>
   </section>
 
   <section id="packaging">
